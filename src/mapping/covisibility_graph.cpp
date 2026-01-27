@@ -4,13 +4,17 @@
 #include <queue>
 
 namespace caai_slam {
-    void covisibility_graph::update(std::shared_ptr<keyframe> kf, const std::deque<std::shared_ptr<keyframe>>& active_window, int32_t min_weight) {
+    void covisibility_graph::update(std::shared_ptr<keyframe> kf, int32_t min_weight) {
         if (!kf)
             return;
-        
-        std::unique_lock<std::shared_mutex> lock(mutex);
 
-        uint64_t kf_id = kf->id;
+        std::vector<std::pair<std::shared_ptr<keyframe>, int32_t>> updates_to_apply;
+
+        {
+            std::unique_lock<std::shared_mutex> lock(mutex);
+        }
+
+        const uint64_t kf_id = kf->id;
         nodes[kf_id] = kf;
 
         // 1. Calculate weights (shared map points) with all other keyframes.
@@ -132,12 +136,12 @@ namespace caai_slam {
 
                 // Remove keyframe from neighbor's internal stored vectors.
                 if (nodes.count(neighbor_id)) {
-                    auto& neighbor = nodes[neighbor_id];
+                    auto& neighbor_kf = nodes[neighbor_id];
 
-                    std::lock_guard<std::mutex> n_lock(neighbor->mutex);
+                    std::lock_guard<std::mutex> n_lock(neighbor_kf->mutex);
 
-                    auto& kfs = neighbor->connected_keyframes;
-                    auto& ws = neighbor->connected_weights;
+                    auto& kfs = neighbor_kf->connected_keyframes;
+                    auto& ws = neighbor_kf->connected_weights;
 
                     for (size_t i = 0; i < kfs.size(); ++i)
                         if (kfs[i]->id == id) {

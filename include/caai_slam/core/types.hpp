@@ -108,7 +108,7 @@ namespace caai_slam {
 
         double fx, fy; // Focal length
         double cx, cy; // Principal point
-        double k1, k2, p1, p1; // Distortion (radtan)
+        double k1, k2, p1, p2; // Distortion (radtan)
         int width, height;
 
         vec2 project(const vec3& p_cam) const {
