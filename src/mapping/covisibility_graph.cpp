@@ -81,7 +81,7 @@ namespace caai_slam {
             // Handle dropped connections (count == 0)
             for (const auto& [prev_neighbor_id, prev_weight] : previous_edges) {
                 // Only process if this neighbor is not in the current edges.
-                if (curr_edges.count(prev_neighbor_id)) {
+                if (!curr_edges.count(prev_neighbor_id)) {
                     if (adjacency_map.count(prev_neighbor_id))
                         adjacency_map[prev_neighbor_id].erase(kf->id);
                     if (nodes.count(prev_neighbor_id))
@@ -89,7 +89,6 @@ namespace caai_slam {
                 }
             }
         }
-        
 
         // 3. Update the keyframe's internal cache (sorted descending by weight).
         std::sort(valid_neighbors.begin(), valid_neighbors.end(), [](const auto& a, const auto& b) { return a.second > b.second; }); // Descending
