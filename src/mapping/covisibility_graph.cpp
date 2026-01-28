@@ -4,63 +4,95 @@
 #include <queue>
 
 namespace caai_slam {
+    // Helper to remove a specific keyframe from a neighbor's internal cache.
+    void remove_kf_from_neighbor_cache(const std::shared_ptr<keyframe>& neighbor, const uint64_t kf_id) {
+        std::lock_guard<std::mutex> lock(neighbor->mutex);
+
+        auto& kfs = neighbor->connected_keyframes;
+        auto& ws = neighbor->connected_weights;
+
+        for (size_t i = 0; i < kfs.size(); ++i)
+            if (kfs[i]->id == kf_id) {
+                kfs.erase(kfs.begin() + i);
+                ws.erase(ws.begin() + i);
+                break;
+            }
+    }
+
     void covisibility_graph::update(std::shared_ptr<keyframe> kf, int32_t min_weight) {
         if (!kf)
             return;
 
-        std::vector<std::pair<std::shared_ptr<keyframe>, int32_t>> updates_to_apply;
+        std::vector<std::pair<std::shared_ptr<keyframe>, int32_t>> valid_neighbors;
+        // List of neighbors that need to be updated because they were dropped (count == 0).
+        std::vector<std::shared_ptr<keyframe>> neighbors_to_disconnect;
 
         {
             std::unique_lock<std::shared_mutex> lock(mutex);
-        }
 
-        const uint64_t kf_id = kf->id;
-        nodes[kf_id] = kf;
+            nodes[kf->id] = kf;
 
-        // 1. Calculate weights (shared map points) with all other keyframes.
-        std::map<std::shared_ptr<keyframe>, uint32_t> shared_counts;
+            // Make a copy of previous edges to detect dropped connections (count == 0).
+            auto previous_edges = adjacency_map[kf->id];
 
-        // Iterate through all map points observed by the keyframe.
-        for (const auto& mp : kf->map_points)
-            if (mp && !mp->is_bad)
-                // Get iterate observations of the current map point & update neighbor counts.
-                for (const auto& observation : mp->get_observations())
-                    // Do not include self in the count.
-                    if (observation.first->id != kf_id)
-                        shared_counts[observation.first]++;
+            // 1. Calculate weights (shared map points) with all other keyframes.
+            std::map<std::shared_ptr<keyframe>, uint32_t> shared_counts;
 
-        // 2. Filter by threshold and prepare update data.
-        // Only keep edges with weight >= min_weight.
-        std::vector<std::pair<int32_t, std::shared_ptr<keyframe>>> valid_neighbors;
-        valid_neighbors.reserve(shared_counts.size());
+            // Iterate through all map points observed by the keyframe.
+            for (const auto& mp : kf->map_points)
+                if (mp && !mp->is_bad)
+                    // Get iterate observations of the current map point & update neighbor counts.
+                    for (const auto& observation : mp->get_observations())
+                        // Do not include self in the count.
+                        if (observation.first->id != kf->id)
+                            shared_counts[observation.first]++;
 
-        // Prepare to update the central adjacency map.
-        auto& curr_edges = adjacency_map[kf_id];
-        curr_edges.clear(); // Rebuild the edges for this node.
+            // 2. Filter by threshold and prepare update data.
+            // Only keep edges with weight >= min_weight.
+            valid_neighbors.reserve(shared_counts.size());
 
-        for (const auto& shared_count : shared_counts) {
-            const std::shared_ptr<keyframe>& neighbor = shared_count.first;
-            const int32_t weight = shared_count.second;
+            // Prepare to update the central adjacency map.
+            auto& curr_edges = adjacency_map[kf->id];
+            curr_edges.clear(); // Rebuild the edges for ->his node.
 
-            if (weight >= min_weight) {
-                valid_neighbors.emplace_back(weight, neighbor);
+            for (const auto& shared_count : shared_counts) {
+                const std::shared_ptr<keyframe>& neighbor = shared_count.first;
+                const int32_t weight = shared_count.second;
 
-                // Update central graph (Direction 1: Current -> Neighbor).
-                curr_edges[neighbor->id] = weight;
+                if (weight >= min_weight) {
+                    valid_neighbors.emplace_back(neighbor, weight);
 
-                // Update central graph (Direction 2: Neighbor -> Current).
-                adjacency_map[neighbor->id][kf_id] = weight;
+                    // Update central graph (Direction 1: Current -> Neighbor).
+                    curr_edges[neighbor->id] = weight;
+
+                    // Update central graph (Direction 2: Neighbor -> Current).
+                    adjacency_map[neighbor->id][kf->id] = weight;
+                }
+                else {
+                    // Explicitly remove weak edges from neighbor's record if they exist.
+                    auto it = adjacency_map.find(neighbor->id);
+                    if (it != adjacency_map.end())
+                        it->second.erase(kf->id);
+
+                    neighbors_to_disconnect.push_back(neighbor);
+                }
             }
-            else {
-                // Explicitly remove weak edges from neighbor's record if they exist.
-                auto it = adjacency_map.find(neighbor->id);
-                if (it != adjacency_map.end())
-                    it->second.erase(kf_id);
+
+            // Handle dropped connections (count == 0)
+            for (const auto& [prev_neighbor_id, prev_weight] : previous_edges) {
+                // Only process if this neighbor is not in the current edges.
+                if (curr_edges.count(prev_neighbor_id)) {
+                    if (adjacency_map.count(prev_neighbor_id))
+                        adjacency_map[prev_neighbor_id].erase(kf->id);
+                    if (nodes.count(prev_neighbor_id))
+                        neighbors_to_disconnect.push_back(nodes[prev_neighbor_id]);
+                }
             }
         }
+        
 
         // 3. Update the keyframe's internal cache (sorted descending by weight).
-        std::sort(valid_neighbors.begin(), valid_neighbors.end(), [](const auto& a, const auto& b) { return a.first > b.first; }); // Descending
+        std::sort(valid_neighbors.begin(), valid_neighbors.end(), [](const auto& a, const auto& b) { return a.second > b.second; }); // Descending
 
         {
             // Lock keyframe before modifying its members.
@@ -70,8 +102,8 @@ namespace caai_slam {
             kf->connected_weights.clear();
 
             for (const auto& valid_neighbor : valid_neighbors) {
-                kf->connected_keyframes.push_back(valid_neighbor.second);
-                kf->connected_weights.push_back(valid_neighbor.first);
+                kf->connected_keyframes.push_back(valid_neighbor.first);
+                kf->connected_weights.push_back(valid_neighbor.second);
             }
         }
 
@@ -79,7 +111,7 @@ namespace caai_slam {
         // Since the edge weights have been updated, the neighbors must re-sort/update their lists.
         // Optimization: Only update neighbors whose connection status actually changed. Update all valid neighbors.
         for (const auto& valid_neighbor : valid_neighbors) {
-            const std::shared_ptr<keyframe>& neighbor = valid_neighbor.second;
+            const std::shared_ptr<keyframe>& neighbor = valid_neighbor.first;
 
             // This implementation will append and re-sort the neighbor
             std::lock_guard<std::mutex> n_lock(neighbor->mutex);
@@ -89,15 +121,15 @@ namespace caai_slam {
 
             bool found = false;
             for (size_t i = 0; i < n_kfs.size(); ++i)
-                if (n_kfs[i]->id == kf_id) {
-                    n_ws[i] = valid_neighbor.first; // Update weight
+                if (n_kfs[i]->id == kf->id) {
+                    n_ws[i] = valid_neighbor.second; // Update weight
                     found = true;
                     break;
                 }
 
             if (!found) {
                 n_kfs.push_back(kf);
-                n_ws.push_back(valid_neighbor.first);
+                n_ws.push_back(valid_neighbor.second);
             }
 
             // Re-sort the neighbor's lists.
@@ -115,6 +147,10 @@ namespace caai_slam {
                 n_ws.push_back(p.first);
             }
         }
+
+        // 5. Update disconnected neighbor's caches (remove).
+        for (auto& neighbor : neighbors_to_disconnect)
+            remove_kf_from_neighbor_cache(neighbor, kf->id);
     }
 
     void covisibility_graph::remove_keyframe(std::shared_ptr<keyframe> kf) {
