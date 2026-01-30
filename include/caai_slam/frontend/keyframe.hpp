@@ -39,7 +39,13 @@ namespace caai_slam {
         void add_observation(std::shared_ptr<keyframe> kf, size_t feature_idx);
         void remove_observation(std::shared_ptr<keyframe> kf);
         std::map<std::shared_ptr<keyframe>, size_t> get_observations() const;
-        gtsam::Symbol symbol() const { return gtsam::Symbol('l', id); }
+
+        inline gtsam::Symbol symbol() const { return gtsam::Symbol('l', id); }
+
+        inline size_t get_observation_count() const {
+            std::lock_guard<std::mutex> lock(mutex);
+            return observations.size(); 
+        }
     };
 
     /**

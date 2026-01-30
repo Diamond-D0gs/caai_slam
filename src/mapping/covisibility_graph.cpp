@@ -42,10 +42,10 @@ namespace caai_slam {
             for (const auto& mp : kf->map_points)
                 if (mp && !mp->is_bad)
                     // Get iterate observations of the current map point & update neighbor counts.
-                    for (const auto& observation : mp->get_observations())
+                    for (const auto& [keyframe, count] : mp->get_observations())
                         // Do not include self in the count.
-                        if (observation.first->id != kf->id)
-                            shared_counts[observation.first]++;
+                        if (keyframe->id != kf->id)
+                            shared_counts[keyframe]++;
 
             // 2. Filter by threshold and prepare update data.
             // Only keep edges with weight >= min_weight.
@@ -55,10 +55,7 @@ namespace caai_slam {
             auto& curr_edges = adjacency_map[kf->id];
             curr_edges.clear(); // Rebuild the edges for ->his node.
 
-            for (const auto& shared_count : shared_counts) {
-                const std::shared_ptr<keyframe>& neighbor = shared_count.first;
-                const int32_t weight = shared_count.second;
-
+            for (const auto& [neighbor, weight] : shared_counts) {
                 if (weight >= min_weight) {
                     valid_neighbors.emplace_back(neighbor, weight);
 
@@ -109,9 +106,7 @@ namespace caai_slam {
         // 4. Update the neighbors' internal caches.
         // Since the edge weights have been updated, the neighbors must re-sort/update their lists.
         // Optimization: Only update neighbors whose connection status actually changed. Update all valid neighbors.
-        for (const auto& valid_neighbor : valid_neighbors) {
-            const std::shared_ptr<keyframe>& neighbor = valid_neighbor.first;
-
+        for (const auto& [neighbor, weight] : valid_neighbors) {
             // This implementation will append and re-sort the neighbor
             std::lock_guard<std::mutex> n_lock(neighbor->mutex);
 
@@ -121,14 +116,14 @@ namespace caai_slam {
             bool found = false;
             for (size_t i = 0; i < n_kfs.size(); ++i)
                 if (n_kfs[i]->id == kf->id) {
-                    n_ws[i] = valid_neighbor.second; // Update weight
+                    n_ws[i] = weight; // Update weight
                     found = true;
                     break;
                 }
 
             if (!found) {
                 n_kfs.push_back(kf);
-                n_ws.push_back(valid_neighbor.second);
+                n_ws.push_back(weight);
             }
 
             // Re-sort the neighbor's lists.
