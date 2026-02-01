@@ -9,7 +9,7 @@ namespace caai_slam {
 
     std::vector<cv::DMatch> feature_matcher::match(const cv::Mat& descriptors_query, const cv::Mat& descriptors_train) {
         if (descriptors_query.empty() || descriptors_train.empty() || descriptors_train.rows < 2) // We require at least 2 neighbors for the ratio test
-            return;
+            return {};
 
         std::vector<std::vector<cv::DMatch>> knn_matches;
         matcher->knnMatch(descriptors_query, descriptors_train, knn_matches, 2);

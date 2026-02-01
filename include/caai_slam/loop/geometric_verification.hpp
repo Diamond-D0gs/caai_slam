@@ -19,13 +19,13 @@ namespace caai_slam {
      */
     class geometric_verification {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         config _config;
 
         std::unique_ptr<teaser::RobustRegistrationSolver> solver;
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         /**
          * @brief Result of the geometric verification process
          */

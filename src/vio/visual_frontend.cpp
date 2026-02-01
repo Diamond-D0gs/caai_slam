@@ -28,15 +28,25 @@ namespace caai_slam {
 
         uint32_t count = 0;
         for (const auto& mp : candidates)
-            if (mp && !mp->is_bad)
+            if (mp && !mp->is_bad) {
                 // Simple search: match mp descriptor against current frame descriptors
                 // TODO: Consider upgrading to a spatial search grid for higher perf.
+                int32_t best_idx = -1;
+                double best_dist = 50.0;
                 for (size_t i = 0; i < curr_frame->keypoints.size(); ++i)
-                    if (!curr_frame->map_points[i] && cv::norm(curr_frame->descriptors.row(i), mp->descriptor, cv::NORM_HAMMING) < 50.0 /* Threshold for binary descriptors */) {
-                        curr_frame->map_points[i] = mp;
-                        ++count;
-                        break;
+                    if (!curr_frame->map_points[i]) {
+                        const double dist = cv::norm(curr_frame->descriptors.row(i), mp->descriptor, cv::NORM_HAMMING);
+                        if (dist < best_dist) {
+                            best_idx = static_cast<int32_t>(i);
+                            best_dist = dist;
+                        }
                     }
+
+                if (best_idx >= 0) {
+                    curr_frame->map_points[best_idx] = mp;
+                    ++count;
+                }
+            }
 
         return count;
     }

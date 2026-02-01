@@ -17,8 +17,6 @@ namespace caai_slam {
      */
     class feature_extractor {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         config _config;
 
         cv::Ptr<cv::AKAZE> akaze;
@@ -33,6 +31,8 @@ namespace caai_slam {
         void limit_features(std::vector<cv::KeyPoint>& keypoints, cv::Mat& descriptors, const uint32_t max_features);
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         /**
          * @param cfg System configuration containing AKAZE thresholds and limits.
          */

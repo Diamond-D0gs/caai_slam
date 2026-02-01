@@ -26,8 +26,6 @@ namespace caai_slam {
      */
     class graph_optimizer {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         config _config;
 
         // GTSAM Core
@@ -65,6 +63,8 @@ namespace caai_slam {
         Eigen::Matrix<double, 15, 15> compute_state_covariance(const uint64_t kf_id);
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         explicit graph_optimizer(const config& _config);
 
         /**

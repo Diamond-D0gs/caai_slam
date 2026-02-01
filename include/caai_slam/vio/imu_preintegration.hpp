@@ -18,8 +18,6 @@ namespace caai_slam {
      */
     class imu_preintegration {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         // GTSAM IMU parameters (noise models, gravity)
         boost::shared_ptr<gtsam::PreintegratedCombinedMeasurements::Params> params; // Boost shared_ptr for legacy purposes
 
@@ -33,6 +31,8 @@ namespace caai_slam {
         mutable std::mutex mutex;
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         /**
          * @brief Construct a new IMU preintegration object
          * 

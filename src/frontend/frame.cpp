@@ -3,7 +3,7 @@
 namespace caai_slam {
     std::atomic<uint64_t> frame::next_id{0};
 
-    frame::frame(timestamp ts, const cv::Mat& img_grayscale, const std::vector<cv::KeyPoint>& kps, const cv::Mat& descs) : id(next_id++), _timestamp(ts), keypoints(kps) {
+    frame::frame(timestamp ts, const std::vector<cv::KeyPoint>& kps, const cv::Mat& descs) : id(next_id++), _timestamp(ts), keypoints(kps) {
         descs.copyTo(descriptors);
 
         // Initialize map point associations as nullptr

@@ -22,8 +22,6 @@ namespace caai_slam {
      */
     class fixed_lag_smoother {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         config _config;
 
         // GTSAM smoother
@@ -53,6 +51,8 @@ namespace caai_slam {
         mutable std::mutex mutex;
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         explicit fixed_lag_smoother(const config& cfg);
 
         /**

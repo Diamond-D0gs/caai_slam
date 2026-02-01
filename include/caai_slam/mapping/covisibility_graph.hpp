@@ -21,8 +21,6 @@ namespace caai_slam {
      */
     class covisibility_graph {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         // Adjacency list: [KF_ID] -> map<neighbor_id, weight>
         std::unordered_map<uint64_t, std::unordered_map<uint64_t, int32_t>> adjacency_map;
 
@@ -33,6 +31,8 @@ namespace caai_slam {
         mutable std::shared_mutex mutex;
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         /**
          * @brief Update connections for a specific keyframe.
          * 

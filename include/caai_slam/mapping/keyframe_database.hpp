@@ -20,8 +20,6 @@ namespace caai_slam {
      */
     class keyframe_database {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         // Core storage: ID -> keyframe
         std::unordered_map<uint64_t, std::shared_ptr<keyframe>> keyframes;
         uint64_t last_id = 0;
@@ -30,6 +28,8 @@ namespace caai_slam {
         mutable std::shared_mutex mutex;
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         /**
          * @brief Add a keyframe to the global database
          * 

@@ -14,6 +14,8 @@ namespace caai_slam {
      * 
      * Unlike a keyframe, a frame is a transient object used for tracking.
      * It holds the temporal state of the system before a keyframe decision is made.
+     * 
+     * TODO: Thread safety and proper reseting and serialization of 'next_id'.
      */
     struct frame {
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -38,11 +40,10 @@ namespace caai_slam {
 
         /**
          * @param ts The acquisition timestamp of the image
-         * @param img_grayscale Grayscale image data
          * @param kps Detected keypoints
          * @param descs Computed descriptors 
          */
-        frame(timestamp ts, const cv::Mat& img_grayscale, const std::vector<cv::KeyPoint>& kps, const cv::Mat& descs);
+        frame(timestamp ts, const std::vector<cv::KeyPoint>& kps, const cv::Mat& descs);
 
         /**
          * @brief Check if a specific feature index has an associated 3D map point

@@ -21,8 +21,6 @@ namespace caai_slam {
      */
     class visual_frontend {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         config _config;
 
         std::shared_ptr<local_map> _local_map;
@@ -62,6 +60,8 @@ namespace caai_slam {
         void outlier_rejection(std::shared_ptr<frame>& curr_frame);
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         /**
          * @param cfg System configuration settings
          * @param l_map Pointer to the local map for spatial tracking

@@ -22,8 +22,6 @@ namespace caai_slam {
      */
     class loop_detector {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         config _config;
 
         // FBoW vocabulary and database
@@ -77,6 +75,8 @@ namespace caai_slam {
         //void get_matched_points(const std::shared_ptr<keyframe>& kf1, const std::shared_ptr<keyframe>& kf2, Eigen::Matrix<double, 3, Eigen::Dynamic>& src_cloud, Eigen::Matrix<double, 3, Eigen::Dynamic>& target_cloud);
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         struct loop_result {
             std::shared_ptr<keyframe> query_kf, match_kf;
             bool is_detected = false;

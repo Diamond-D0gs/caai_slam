@@ -21,8 +21,6 @@ namespace caai_slam {
      */
     class marginalization {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         // Cache the marginals object because construction is expensive.
         std::unique_ptr<gtsam::Marginals> marginals_computer;
 
@@ -32,6 +30,8 @@ namespace caai_slam {
         mutable std::mutex mutex;
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         /**
          * @brief Compute marginal covariances for the given graph and values.
          * 

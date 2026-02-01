@@ -22,8 +22,6 @@ namespace caai_slam {
      */
     class local_map {
     private:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         config _config;
 
         // Core containers
@@ -40,6 +38,8 @@ namespace caai_slam {
         bool is_point_in_frustrum(const vec3& pos_world, const se3& t_cam_world) const;
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
         explicit local_map(const config& cfg) : _config(cfg) {}
 
         // =========================================================================
