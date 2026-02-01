@@ -117,7 +117,7 @@ namespace caai_slam {
             return vec2(fx * x + cx, fy * y + cy);
         }
 
-        vec2 unproject(const vec2& p_img) const {
+        vec3 unproject(const vec2& p_img) const {
             double x = (p_img.x() - cx) / fx;
             double y = (p_img.y() - cy) / fy;
             return vec3(x, y, 1.0).normalized();

@@ -241,6 +241,7 @@ set(SLAM_SOURCES
     src/backend/marginalization.cpp
     
     # Loop Closure
+    src/loop/common.cpp
     src/loop/loop_detector.cpp
     src/loop/place_recognition.cpp
     src/loop/geometric_verification.cpp
@@ -274,6 +275,7 @@ set(SLAM_HEADERS
     include/caai_slam/backend/fixed_lag_smoother.hpp
     include/caai_slam/backend/marginalization.hpp
     
+    include/caai_slam/loop/common.hpp
     include/caai_slam/loop/loop_detector.hpp
     include/caai_slam/loop/place_recognition.hpp
     include/caai_slam/loop/geometric_verification.hpp

@@ -41,7 +41,7 @@ namespace caai_slam {
         // Noise models
         gtsam::noiseModel::Diagonal::shared_ptr velocity_noise;
         gtsam::noiseModel::Diagonal::shared_ptr bias_rw_noise;
-        gtsam::noiseModel::Diagonal::shared_ptr visual_noise;
+        gtsam::noiseModel::Isotropic::shared_ptr visual_noise;
         gtsam::noiseModel::Diagonal::shared_ptr bias_noise;
         gtsam::noiseModel::Diagonal::shared_ptr pose_noise;
         
@@ -70,14 +70,14 @@ namespace caai_slam {
          * @param imu_meas Preintegrated IMU from previous keyframe to current keyframe.
          * @param prev_kf_id ID of the previous keyframe
          */
-        void add_keyframe(const std::shared_ptr<keyframe> kf, const gtsam::PreintegratedCombinedMeasurements& imu_meas, const uint64_t prev_kf_id);
+        void add_keyframe(const std::shared_ptr<keyframe>& kf, const gtsam::PreintegratedCombinedMeasurements& imu_meas, const uint64_t prev_kf_id);
 
         /**
          * @brief Trigger for the optimization step.
          * 
          * @return The set of keys that were marginalized out in this step (used to prune local map).
          */
-        std::unordered_set<uint64_t> optimize();
+        std::vector<uint64_t> optimize();
 
         /**
          * @brief Get the latest optimized state estimate.

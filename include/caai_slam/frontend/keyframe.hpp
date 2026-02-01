@@ -21,7 +21,7 @@ namespace caai_slam {
         static std::atomic<uint64_t> next_id;
 
         // Identity
-        uint64 id;
+        uint64_t id;
         // Position (Optimizable)
         vec3 position; // World frame
         // Appearance
