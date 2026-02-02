@@ -125,7 +125,7 @@ namespace caai_slam {
         return covariance;
     }
 
-    state graph_optimizer::optimize(std::shared_ptr<keyframe> curr_kf, const std::vector<std::shared_ptr<keyframe>>& active_kfs) {
+    state graph_optimizer::optimize(std::shared_ptr<keyframe>& curr_kf, const std::vector<std::shared_ptr<keyframe>>& active_kfs) {
         std::lock_guard<std::mutex> lock(mutex);
 
         // 1. Update ISAM2

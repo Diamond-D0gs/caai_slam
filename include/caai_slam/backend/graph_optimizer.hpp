@@ -105,7 +105,7 @@ namespace caai_slam {
          * 
          * @return The current estimated state.
          */
-        state optimize(std::shared_ptr<keyframe> curr_kf, const std::vector<std::shared_ptr<keyframe>>& active_kfs);
+        state optimize(std::shared_ptr<keyframe>& curr_kf, const std::vector<std::shared_ptr<keyframe>>& active_kfs);
 
         /**
          * @brief Get the latest optimized state.
