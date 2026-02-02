@@ -20,8 +20,6 @@ namespace caai_slam {
         cv::Ptr<cv::BFMatcher> matcher;
 
     public:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         /**
          * @param cfg System configuration containing the matching ratio threshold
          */

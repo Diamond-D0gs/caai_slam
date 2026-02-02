@@ -93,7 +93,7 @@ namespace caai_slam {
         std::vector<cv::KeyPoint> kps;
         extractor->detect_and_compute(image, kps, descs);
 
-        auto curr_frame = std::make_shared<frame>(ts, image, kps, descs);
+        auto curr_frame = std::make_shared<frame>(ts, kps, descs);
         curr_frame->pose = predicted_pose;
 
         // 2. Tracking
