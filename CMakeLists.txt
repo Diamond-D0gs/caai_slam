@@ -340,6 +340,8 @@ set(SLAM_SOURCES
     src/utils/calibration.cpp
     src/utils/triangulation.cpp
     src/utils/euroc_loader.cpp
+
+    src/app/slam_app.cpp
 )
 
 set(SLAM_HEADERS
@@ -373,6 +375,8 @@ set(SLAM_HEADERS
     include/caai_slam/utils/calibration.hpp
     include/caai_slam/utils/triangulation.hpp
     include/caai_slam/utils/euroc_loader.hpp
+
+    include/caai_slam/app/slam_app.hpp
 )
 
 # =============================================================================

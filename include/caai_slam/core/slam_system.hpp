@@ -144,6 +144,16 @@ namespace caai_slam {
         system_status get_status() const;
 
         /**
+         * @brief Get the current local map
+         * 
+         * @return Shared pointer to current local map
+         */
+        inline std::shared_ptr<local_map> get_local_map() const {
+            std::lock_guard<std::mutex> lock(mutex);
+            return _local_map;
+        } 
+
+        /**
          * @brief Reset the system to a clean state
          */
         void reset();
