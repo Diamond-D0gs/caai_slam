@@ -106,7 +106,7 @@ namespace caai_slam {
 
     Eigen::Matrix<double, 15, 15> graph_optimizer::compute_state_covariance(const uint64_t kf_id) {
         // State ordering: [rotation(3), position(3), velocity(3), bias_gyro(3), bias_accel(3)].
-        auto covariance = Eigen::Matrix<double, 15, 15>::Identity();
+        Eigen::Matrix<double, 15, 15> covariance = Eigen::Matrix<double, 15, 15>::Identity();
 
         const gtsam::Key pose_key = sym_pose(kf_id);
         const gtsam::Key vel_key = sym_vel(kf_id);

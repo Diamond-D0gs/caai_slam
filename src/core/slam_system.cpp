@@ -40,6 +40,8 @@ namespace caai_slam {
         // _loop_detector->load_vocabulary("orb_vocab.fbow");
     }
 
+    slam_system::~slam_system() = default;
+
     void slam_system::process_initialization(const cv::Mat& image, const double ts) {
         // Predict pose is identity for initalization
         se3 identity;

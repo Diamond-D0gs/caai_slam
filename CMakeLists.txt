@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(CAAI_SLAM VERSION 0.1.0 LANGUAGES CXX)
+project(CAAI_SLAM VERSION 0.1.0 LANGUAGES C CXX)
 
 # =============================================================================
 # Build Configuration
@@ -278,19 +278,29 @@ if(BUILD_VISUALIZER)
         FetchContent_MakeAvailable(imgui)
         
         # Create ImGui library
-        add_library(imgui STATIC
+        # 1. Define the common sources for all platforms
+        set(IMGUI_SOURCES
             ${imgui_SOURCE_DIR}/imgui.cpp
             ${imgui_SOURCE_DIR}/imgui_demo.cpp
             ${imgui_SOURCE_DIR}/imgui_draw.cpp
             ${imgui_SOURCE_DIR}/imgui_widgets.cpp
             ${imgui_SOURCE_DIR}/imgui_tables.cpp
             ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-            ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
         )
+
+        # 2. Conditionally append the Windows backend ONLY if on Windows
+        if(WIN32)
+            list(APPEND IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
+        endif()
+
+        # 3. Create the library using the constructed source list
+        add_library(imgui STATIC ${IMGUI_SOURCES})
+
         target_include_directories(imgui PUBLIC
             ${imgui_SOURCE_DIR}
             ${imgui_SOURCE_DIR}/backends
         )
+
         target_link_libraries(imgui PUBLIC OpenGL::OpenGL)
         
         set(IMGUI_INCLUDE_DIRS ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)

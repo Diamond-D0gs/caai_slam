@@ -75,8 +75,7 @@ namespace caai_slam {
         // Thread safety
         mutable std::mutex mutex;
 
-        keyframe::keyframe(double ts, const gtsam::Pose3& initial_pose)
-            : id(next_id++), _timestamp(ts), pose(initial_pose) {}
+        keyframe(double ts, const gtsam::Pose3& initial_pose) : id(next_id++), _timestamp(ts), pose(initial_pose) {}
 
         void compute_bow(fbow::Vocabulary& voc);
         void set_pose(const gtsam::Pose3& p);

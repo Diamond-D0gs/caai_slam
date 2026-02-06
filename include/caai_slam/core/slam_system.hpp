@@ -102,6 +102,7 @@ namespace caai_slam {
          * @param cfg_path Path to the YAML configuration file
          */
         explicit slam_system(const std::string& cfg_path);
+        ~slam_system();
 
         // Disable copying
         slam_system(const slam_system&) = delete;

@@ -73,6 +73,13 @@ namespace caai_slam {
         timestamp _timestamp;
         vec3 angular_velocity; // rad/s
         vec3 linear_acceleration; // m/s^2
+
+        // ADD THIS CONSTRUCTOR
+        imu_measurement(double t, const vec3& gyro, const vec3& accel) 
+            : _timestamp(t), angular_velocity(gyro), linear_acceleration(accel) {}
+            
+        // Optional: Keep default constructor if needed elsewhere
+        imu_measurement() = default;
     };
 
     struct imu_bias {
