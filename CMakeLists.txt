@@ -482,7 +482,7 @@ if(BUILD_EXAMPLES)
         endif()
         
         add_executable(caai_slam_visualizer
-            src/main.cpp
+            ${VISUALIZER_MAIN}
         )
         target_include_directories(caai_slam_visualizer PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
