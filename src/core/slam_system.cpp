@@ -111,6 +111,9 @@ namespace caai_slam {
         new_kf->map_points = curr_frame->map_points;
         new_kf->keypoints = curr_frame->keypoints;
 
+        if (new_kf->map_points.size() < new_kf->keypoints.size())
+            new_kf->map_points.resize(new_kf->keypoints.size(), nullptr);
+
         if (last_keyframe) {
             std::vector<cv::DMatch> matches = _feature_matcher->match(new_kf->descriptors, last_keyframe->descriptors);
 
@@ -223,7 +226,7 @@ namespace caai_slam {
         imu_measurement synced = meas;
         synced._timestamp = _time_sync->imu_to_cam(meas._timestamp);
 
-        if (status == system_status::INITIALIZING)
+        if (status == system_status::NOT_INITIALIZED || status == system_status::INITIALIZING)
             _vio_initializer->add_imu(synced);
         else if (status == system_status::TRACKING) {
             // In tracking, we integrate relative to the last keyframe

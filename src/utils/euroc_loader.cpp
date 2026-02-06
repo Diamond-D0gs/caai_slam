@@ -100,8 +100,8 @@ namespace caai_slam {
 
             imu_data imu;
             imu.ts = std::stod(parts[0]) / 1e9;  // nanoseconds to seconds
-            imu.accel = vec3(std::stod(parts[1]), std::stod(parts[2]), std::stod(parts[3]));
-            imu.gyro = vec3(std::stod(parts[4]), std::stod(parts[5]), std::stod(parts[6]));
+            imu.gyro  = vec3(std::stod(parts[1]), std::stod(parts[2]), std::stod(parts[3]));
+            imu.accel = vec3(std::stod(parts[4]), std::stod(parts[5]), std::stod(parts[6]));
 
             imu_measurements.push_back(imu);
         }
@@ -193,7 +193,7 @@ namespace caai_slam {
 
         while (imu_idx < imu_measurements.size() && imu_measurements[imu_idx].ts <= t_camera) {
             const imu_data _imu_data = imu_measurements[imu_idx++];
-            out_imu_buffer.emplace_back(_imu_data.ts, _imu_data.accel, _imu_data.gyro);
+            out_imu_buffer.emplace_back(_imu_data.ts, _imu_data.gyro, _imu_data.accel);
         }
     }
 
@@ -205,7 +205,7 @@ namespace caai_slam {
 
         for (size_t i = 0; i < count && imu_idx < imu_measurements.size(); ++i) {
             const imu_data _imu_data = imu_measurements[imu_idx++];
-            out_imu.emplace_back(_imu_data.ts, _imu_data.accel, _imu_data.gyro);
+            out_imu.emplace_back(_imu_data.ts, _imu_data.gyro, _imu_data.accel);
         }
 
         return !out_imu.empty();

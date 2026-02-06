@@ -191,6 +191,7 @@ namespace caai_slam {
         if (!kf)
             return {};
 
+        std::lock_guard<std::shared_mutex> shared_lock(mutex);
         std::lock_guard<std::mutex> lock(kf->mutex);
 
         // Faster to read directly from keyframe than querying the map.

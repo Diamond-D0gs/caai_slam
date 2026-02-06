@@ -85,7 +85,7 @@ namespace caai_slam {
         new_timestamps[sym_vel(kf->id)] = kf->_timestamp;
         new_timestamps[sym_bias(kf->id)] = kf->_timestamp;
 
-        const gtsam::Pose3 body_p_sensor(_config._extrinsics.t_cam_imu.matrix().inverse());
+        const gtsam::Pose3 body_p_sensor(_config._extrinsics.t_cam_imu.matrix());
 
         // 5. Visual factors (landmarks)
         for (size_t i = 0; i < kf->keypoints.size(); ++i) {
@@ -97,7 +97,7 @@ namespace caai_slam {
             const gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
 
             // Arguments: measurement, noise, poseKey, landmarkKey, calibration
-            new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(measurement, visual_noise, sym_pose(kf->id), sym_landmark(mp->id), calibration));
+            new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(measurement, visual_noise, sym_pose(kf->id), sym_landmark(mp->id), calibration, body_p_sensor));
 
             // If the landmark is new, add initial value and timestamp.
             if (observed_landmarks.find(mp->id) == observed_landmarks.end()) {
@@ -121,6 +121,7 @@ namespace caai_slam {
         std::lock_guard<std::mutex> lock(mutex);
         // Add a strong prior to pull the graph to the loop-corrected pose.
         const auto noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.01, 0.01, 0.01, 0.02, 0.02, 0.02).finished());
+        new_factors.add(gtsam::PriorFactor<gtsam::Pose3>(sym_pose(kf_id), gtsam::Pose3(pose.matrix()), noise));
     }
 
     std::vector<uint64_t> fixed_lag_smoother::optimize() {

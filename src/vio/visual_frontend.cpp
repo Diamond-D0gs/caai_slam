@@ -129,7 +129,7 @@ namespace caai_slam {
             return true;
 
         // Keyframe if there has been significant movement (parallax/displacement)
-        if (last_kf->pose.between(gtsam::Pose3(curr_frame->pose.matrix())).translation().norm() > 0.3)
+        if (last_kf->get_pose().between(gtsam::Pose3(curr_frame->pose.matrix())).translation().norm() > 0.3)
             return true;
 
         return false;
