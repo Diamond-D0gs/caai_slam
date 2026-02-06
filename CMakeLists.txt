@@ -407,7 +407,6 @@ target_link_libraries(caai_slam
         Eigen3::Eigen
         ${OpenCV_LIBS}
         gtsam
-    PRIVATE
         teaser_registration
         fbow
 )
