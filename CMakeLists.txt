@@ -448,6 +448,34 @@ if(BUILD_EXAMPLES)
         else()
             message(STATUS "GLM found")
         endif()
+
+        # ---------------------------------------------------------------------
+        # Platform-Specific Main Selection
+        # ---------------------------------------------------------------------
+        if(PLATFORM_WINDOWS)
+            if(ARCH_ARM64)
+                message(STATUS "Selecting Main: Win32 ARM64")
+                set(VISUALIZER_MAIN "src/platforms/win32/main_arm64.cpp")
+            elseif(ARCH_X64)
+                message(STATUS "Selecting Main: Win32 x64")
+                set(VISUALIZER_MAIN "src/platforms/win32/main_x64.cpp")
+            else()
+                # Fallback for Win32 x86 or unknown
+                message(WARNING "Unknown Windows Arch, using generic x64 main")
+                set(VISUALIZER_MAIN "src/platforms/win32/main_x64.cpp")
+            endif()
+            
+        elseif(ARDUINO) 
+            # Note: You will likely set 'ARDUINO' in your toolchain file 
+            # for the Uno Q later.
+            message(STATUS "Selecting Main: Arduino Uno Q")
+            set(VISUALIZER_MAIN "src/platforms/arduino/main_uno_q.cpp")
+            
+        else()
+            # Default Linux/Unix
+            message(STATUS "Selecting Main: Generic Linux")
+            set(VISUALIZER_MAIN "src/platforms/linux/main.cpp")
+        endif()
         
         add_executable(caai_slam_visualizer
             src/main.cpp
