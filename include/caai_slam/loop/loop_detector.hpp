@@ -64,19 +64,7 @@ namespace caai_slam {
          */
         bool verify_geometry(const std::shared_ptr<keyframe>& query, const std::shared_ptr<keyframe>& candidate, se3& out_t_cand_query, uint32_t& out_inliers);
 
-        /**
-         * @brief Helper to convert OpenCV/Eigen types for TEASER++
-         * 
-         * @param kf1 Query keyframe
-         * @param kf2 Candidate keyframe
-         * @param src_cloud Output 3xN matrix of 3D points from kf1 (in kf1's IMU frame)
-         * @param target_cloud Output 3xN matrix of 3D points from kf2 (in kf2's IMY frame)
-         */
-        //void get_matched_points(const std::shared_ptr<keyframe>& kf1, const std::shared_ptr<keyframe>& kf2, Eigen::Matrix<double, 3, Eigen::Dynamic>& src_cloud, Eigen::Matrix<double, 3, Eigen::Dynamic>& target_cloud);
-
     public:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
         struct loop_result {
             std::shared_ptr<keyframe> query_kf, match_kf;
             bool is_detected = false;

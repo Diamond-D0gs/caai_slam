@@ -1,9 +1,11 @@
 #include "caai_slam/core/slam_system.hpp"
 
+#include "caai_slam/frontend/feature_extractor.hpp"
 #include "caai_slam/backend/fixed_lag_smoother.hpp"
 #include "caai_slam/mapping/keyframe_database.hpp"
 #include "caai_slam/backend/graph_optimizer.hpp"
 #include "caai_slam/vio/imu_preintegration.hpp"
+#include "caai_slam/utils/triangulation.hpp"
 #include "caai_slam/vio/visual_frontend.hpp"
 #include "caai_slam/vio/vio_initializer.hpp"
 #include "caai_slam/loop/loop_detector.hpp"
@@ -27,6 +29,7 @@ namespace caai_slam {
         _visual_frontend = std::make_unique<visual_frontend>(_config, _local_map);
         _fixed_lag_smoother = std::make_unique<fixed_lag_smoother>(_config);
         _vio_initializer = std::make_unique<vio_initializer>(_config);
+        _feature_matcher = std::make_unique<feature_matcher>(_config);
         _loop_detector = std::make_unique<loop_detector>(_config);
 
         // Preintegrator initialized with zero bias initially, updated after init.
@@ -106,13 +109,76 @@ namespace caai_slam {
         new_kf->map_points = curr_frame->map_points;
         new_kf->keypoints = curr_frame->keypoints;
 
+        if (last_keyframe) {
+            std::vector<cv::DMatch> matches = _feature_matcher->match(new_kf->descriptors, last_keyframe->descriptors);
+
+            const gtsam::Pose3 p_curr = new_kf->get_pose();
+            const gtsam::Pose3 p_last = last_keyframe->get_pose();
+
+            const se3 t_world_kf_curr(p_curr.rotation().matrix(), p_curr.translation());
+            const se3 t_world_kf_last(p_last.rotation().matrix(), p_last.translation());
+
+            const se3 t_cam_imu = _config._extrinsics.t_cam_imu;
+            const se3 t_ic = t_cam_imu.inverse();
+
+            const se3 pose_cam_curr = t_world_kf_curr * t_ic;
+            const se3 pose_cam_last = t_world_kf_last * t_ic;
+
+            for (const auto& m : matches) {
+                // Ensure we have observations in both frames
+                if (m.queryIdx >= new_kf->keypoints.size() || m.trainIdx >= last_keyframe->keypoints.size())
+                    continue;
+                
+                // Only triangulate if the point does not exist in either
+                if (!new_kf->map_points[m.queryIdx] && !last_keyframe->map_points[m.trainIdx]) {
+                    const double u0 = last_keyframe->keypoints[m.trainIdx].pt.x;
+                    const double v0 = last_keyframe->keypoints[m.trainIdx].pt.y;
+                    const double u1 = new_kf->keypoints[m.queryIdx].pt.x;
+                    const double v1 = new_kf->keypoints[m.queryIdx].pt.y;
+
+                    const vec2 norm0((u0-_config.camera.cx)/_config.camera.fx, (v0-_config.camera.cy)/_config.camera.fy);
+                    const vec2 norm1((u1-_config.camera.cx)/_config.camera.fx, (v1-_config.camera.cy)/_config.camera.fy);
+
+                    vec3 pt_world;
+                    if (triangulate_dlt(pose_cam_last, norm0, pose_cam_curr, norm1, pt_world)) {
+                        // Check parallax angle
+                        if (compute_parallax(pose_cam_last, pose_cam_curr, pt_world) < _config.frontend.parallax_min)
+                            continue;
+
+                        auto mp = std::make_shared<map_point>(pt_world, new_kf->descriptors.row(m.queryIdx));
+                        {
+                            std::lock_guard<std::mutex> last_kf_lock(last_keyframe->mutex);
+                            mp->add_observation(last_keyframe, m.trainIdx);
+                            last_keyframe->map_points[m.trainIdx] = mp;
+                        }
+
+                        mp->add_observation(new_kf, m.queryIdx);
+                        new_kf->map_points[m.queryIdx] = mp;
+                        _local_map->add_map_point(mp);
+                    }
+                }
+                else if (!new_kf->map_points[m.queryIdx] && last_keyframe->map_points[m.trainIdx]) {
+                    // Link existing point
+                    auto mp = last_keyframe->map_points[m.trainIdx];
+                    new_kf->map_points[m.queryIdx] = mp;
+                    mp->add_observation(new_kf, m.queryIdx);
+                }
+            }
+        }
+
         // 2. Add to maps
         _local_map->add_keyframe(new_kf);
         _keyframe_database->add(new_kf);
 
+        imu_bias bias_to_reset;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            bias_to_reset = current_state.bias;
+        }
+
         // 3. Add to backend (optimization)
         // Get preintegrated measurements since last keyframe
-        const auto imu_factors = _imu_preintegration->get_preintegrated();
+        const auto imu_factors = _imu_preintegration->get_and_reset(bias_to_reset);
 
         _fixed_lag_smoother->add_keyframe(new_kf, imu_factors, last_keyframe->id);
 
@@ -192,6 +258,8 @@ namespace caai_slam {
         _loop_closure_optimizer->optimize(curr_kf, _local_map->get_all_keyframes());
 
         // 2. Update current state with corrected pose
+        const se3 corrected_pose(curr_kf->get_pose().rotation().matrix(), curr_kf->get_pose().translation());
+        _fixed_lag_smoother->add_pose_prior(curr_kf->id, corrected_pose);
         {
             std::lock_guard<std::mutex> lock(mutex);
             current_state.pose = se3(curr_kf->get_pose().rotation().matrix(), curr_kf->get_pose().translation());

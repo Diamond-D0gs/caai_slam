@@ -62,7 +62,7 @@ namespace caai_slam {
         new_factors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(sym_bias(previous_kf_id), sym_bias(kf->id), gtsam::imuBias::ConstantBias(), bias_rw_noise));
         
         // 3. Predict initial estimate using IMU.
-        const gtsam::NavState prev_state(latest_state.pose.matrix(), latest_state.velocity);
+        const gtsam::NavState prev_state(gtsam::Pose3(latest_state.pose.matrix()), latest_state.velocity);
         const gtsam::imuBias::ConstantBias prev_bias(latest_state.bias.accelerometer, latest_state.bias.gyroscope);
         const gtsam::NavState prop_state = preintegrated_imu.predict(prev_state, prev_bias);
 
@@ -70,6 +70,8 @@ namespace caai_slam {
         new_values.insert(sym_pose(kf->id), prop_state.pose());
         new_values.insert(sym_vel(kf->id), prop_state.velocity());
         new_values.insert(sym_bias(kf->id), prev_bias);
+
+        const gtsam::Pose3 body_p_sensor(_config._extrinsics.t_cam_imu.inverse().matrix());
 
         // 4. Add visual factors
         for (size_t i = 0; i < kf->keypoints.size(); ++i) {
@@ -81,7 +83,7 @@ namespace caai_slam {
             gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
 
             // Add projection factor, Pose3 (camera pose in world) & Point3 (landmark in world).
-            const gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2> vis_factor(measurement, visual_noise, sym_pose(kf->id), sym_landmark(mp->id), camera_calibration);
+            const gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2> vis_factor(measurement, visual_noise, sym_pose(kf->id), sym_landmark(mp->id), camera_calibration, body_p_sensor);
             new_factors.add(vis_factor);
 
             // Check if the landmark is new to the graph.
@@ -110,6 +112,7 @@ namespace caai_slam {
         const gtsam::Key vel_key = sym_vel(kf_id);
         const gtsam::Key bias_key = sym_bias(kf_id);
 
+        // TODO: Make more robust to marginalization failure.
         // Extract marginal covariances for each component.
         const gtsam::Matrix pose_cov = isam.marginalCovariance(pose_key);
         const gtsam::Matrix vel_cov = isam.marginalCovariance(vel_key);

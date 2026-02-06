@@ -92,6 +92,14 @@ namespace caai_slam {
          * @param kf Keyframe to update with optimized values.
          */
         void update_keyframe_state(std::shared_ptr<keyframe>& kf);
+
+        /**
+         * @brief Inject loop closure priors
+         * 
+         * @param kf_id ID of the keyframe belonging to the prior to inject
+         * @param pose Pose of the keyframe
+         */
+        void add_pose_prior(const uint64_t kf_id, const se3& pose);
     };
 
 } // namespace caai_slam

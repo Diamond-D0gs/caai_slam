@@ -82,6 +82,13 @@ namespace caai_slam {
          * @return Current bias
          */
         imu_bias get_current_bias() const;
+
+        /**
+         * @brief Atomic retrieval and reset of bias estimation.
+         * 
+         * @param new_bias New imu bias to prime the preintegration with
+         */
+        gtsam::PreintegratedCombinedMeasurements get_and_reset(const imu_bias& new_bias);
     };
 
 } // namespace caai_slam

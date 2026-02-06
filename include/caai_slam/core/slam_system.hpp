@@ -17,6 +17,7 @@ namespace caai_slam {
     class vio_initializer;
     class visual_frontend;
     class graph_optimizer;
+    class feature_matcher;
     class loop_detector;
     class local_map;
     class time_sync;
@@ -56,6 +57,7 @@ namespace caai_slam {
         std::shared_ptr<keyframe_database> _keyframe_database;
         std::unique_ptr<visual_frontend> _visual_frontend;
         std::unique_ptr<vio_initializer> _vio_initializer;
+        std::unique_ptr<feature_matcher> _feature_matcher;
         std::unique_ptr<loop_detector> _loop_detector;
         std::shared_ptr<local_map> _local_map;
         std::unique_ptr<time_sync> _time_sync;

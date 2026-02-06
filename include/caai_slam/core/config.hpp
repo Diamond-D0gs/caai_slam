@@ -63,7 +63,7 @@ namespace caai_slam {
 
         struct loop_params {
             bool enable = true;
-            float similiarity_threshold = 0.05f; // FBoW score threshold
+            float similarity_threshold = 0.05f; // FBoW score threshold
             int32_t min_matches_geom = 12; // Min inliers for TEASER++
             int32_t exclude_recent_n = 20; // Don't loop close with immediate neighbors
         } loop;

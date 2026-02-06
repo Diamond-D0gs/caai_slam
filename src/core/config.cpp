@@ -77,7 +77,8 @@ namespace caai_slam {
         imu.gyro_noise_density = static_cast<double>(n_imu["gyro_noise_density"]);
         imu.accel_random_walk = static_cast<double>(n_imu["accel_random_walk"]);
         imu.gyro_random_walk = static_cast<double>(n_imu["gyro_random_walk"]);
-        imu.frequency = static_cast<double>(n_imu["frequency"]);
+        imu.frequency = static_cast<uint32_t>(static_cast<double>(n_imu["frequency"])); 
+        // Double cast required due to no direct uint32_t cast operator.
 
         // =========================================================================
         // Algorithm Parameters
@@ -116,7 +117,7 @@ namespace caai_slam {
         }
 
         loop.enable = static_cast<int32_t>(n_loop["enable"]) != 0;
-        loop.similiarity_threshold = static_cast<float>(n_loop["similarity_threshold"]);
+        loop.similarity_threshold = static_cast<float>(n_loop["similarity_threshold"]);
 
         return true;
     }

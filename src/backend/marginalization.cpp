@@ -6,8 +6,20 @@
 #include <cmath>
 
 namespace caai_slam {
+    mat6 marginalization::get_pose_covariance_unlocked(const uint64_t kf_id) const {
+        if (!is_computed || !marginals_computer)
+            return mat6::Identity();
+
+        try {
+            return marginals_computer->marginalCovariance(gtsam::Symbol('x', kf_id));
+        }
+        catch (...) {
+            return mat6::Identity();
+        }
+    }
+
     void marginalization::compute(const gtsam::NonlinearFactorGraph& graph, const gtsam::Values& values) {
-        std::lock_guard<std::mutex> lock(mutex);
+        std::lock_guard<std::recursive_mutex> lock(mutex);
 
         try {
             marginals_computer = std::make_unique<gtsam::Marginals>(graph, values, gtsam::Marginals::QR);
@@ -20,21 +32,12 @@ namespace caai_slam {
     }
 
     mat6 marginalization::get_pose_covariance(const uint64_t kf_id) const {
-        std::lock_guard<std::mutex> lock(mutex);
-
-        if (!is_computed || !marginals_computer)
-            return mat6::Identity(); // Return identity if failed.
-
-        try {
-            return marginals_computer->marginalCovariance(gtsam::Symbol('x', kf_id));
-        }
-        catch (...) {
-            return mat6::Identity();
-        }
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        return get_pose_covariance_unlocked(kf_id);
     }
 
     mat3 marginalization::get_landmark_covariance(const uint64_t mp_id) const {
-        std::lock_guard<std::mutex> lock(mutex);
+        std::lock_guard<std::recursive_mutex> lock(mutex);
 
         if (!is_computed || !marginals_computer)
             return mat3::Identity();
@@ -48,7 +51,7 @@ namespace caai_slam {
     }
 
     mat3 marginalization::get_velocity_covariance(const uint64_t kf_id) const {
-        std::lock_guard<std::mutex> lock(mutex);
+        std::lock_guard<std::recursive_mutex> lock(mutex);
 
         if (!is_computed || !marginals_computer)
             return mat3::Identity();
@@ -62,9 +65,9 @@ namespace caai_slam {
     }
 
     double marginalization::get_pose_entropy(const uint64_t kf_id) const {
-        std::lock_guard<std::mutex> lock(mutex);
+        std::lock_guard<std::recursive_mutex> lock(mutex);
 
-        const mat6 cov = get_pose_covariance(kf_id);
+        const mat6 cov = get_pose_covariance_unlocked(kf_id);
 
         // Entropy H(x) = 0.5 * ln((2*pi*e)^k * det(Sigma))
         // For comparison purposes, we can just look at det(Sigma) or trace.
@@ -83,7 +86,7 @@ namespace caai_slam {
     }
 
     void marginalization::clear() {
-        std::lock_guard<std::mutex> lock(mutex);
+        std::lock_guard<std::recursive_mutex> lock(mutex);
         marginals_computer.reset();
         is_computed = false;
     }

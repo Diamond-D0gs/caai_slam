@@ -59,7 +59,7 @@ namespace caai_slam {
             // Only score candidates sharing a minimum number of words
             if (candidate_count >= 5U) {
                 const double score = fbow::fBow::score(kf->bow_vec, candidate_ptr->bow_vec);
-                if (score >= static_cast<double>(_config.loop.similiarity_threshold))
+                if (score >= static_cast<double>(_config.loop.similarity_threshold))
                     scored_candidates.emplace_back(score, candidate_ptr->shared_from_this());
             }
 

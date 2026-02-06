@@ -27,7 +27,12 @@ namespace caai_slam {
         bool is_computed = false;
 
         // Thread safety
-        mutable std::mutex mutex;
+        mutable std::recursive_mutex mutex;
+
+        /**
+         * @brief Helper must be called with lock held.
+         */
+        mat6 get_pose_covariance_unlocked(const uint64_t kf_id) const;
 
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW

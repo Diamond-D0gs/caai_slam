@@ -13,6 +13,11 @@ namespace caai_slam {
         if (keypoints.empty())
             return;
 
+        // Bounds check
+        const size_t keep_n = std::min(static_cast<size_t>(max_features), keypoints.size());
+        if (keep_n == keypoints.size())
+            return;
+
         // Sort by response (strength of the feature)
         std::vector<int32_t> indices(keypoints.size());
         for (size_t i = 0; i < indices.size(); ++i)
@@ -23,12 +28,12 @@ namespace caai_slam {
         // Retain top features
         cv::Mat top_descriptors;
         std::vector<cv::KeyPoint> top_keypoints;
-        top_keypoints.reserve(max_features);
+        top_keypoints.reserve(keep_n);
 
         // Descriptors is a row-major matrix: rows = keypoints, cols = descriptor size
-        top_descriptors.create(max_features, descriptors.cols, descriptors.type());
+        top_descriptors.create(keep_n, descriptors.cols, descriptors.type());
 
-        for (auto i = 0; i < max_features; ++i) {
+        for (auto i = 0; i < keep_n; ++i) {
             top_keypoints.push_back(keypoints[indices[i]]);
             descriptors.row(indices[i]).copyTo(top_descriptors.row(i));
         }

@@ -82,4 +82,15 @@ namespace caai_slam {
         return b;
     }
 
+    gtsam::PreintegratedCombinedMeasurements imu_preintegration::get_and_reset(const imu_bias& new_bias) {
+        std::lock_guard<std::mutex> lock(mutex);
+
+        const auto result = *preintegrated;
+
+        current_bias_gtsam = gtsam::imuBias::ConstantBias(new_bias.accelerometer, new_bias.gyroscope);
+        preintegrated->resetIntegrationAndSetBias(current_bias_gtsam);
+
+        return result;
+    }
+
 } // namespace caai_slam

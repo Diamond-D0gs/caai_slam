@@ -35,7 +35,7 @@ namespace caai_slam {
         // config.imu stores continuous-time noise densities: sigma / sqrt(Hz)
         // We need discrete-time std dev for the BetweenFactor: sigma_d = sigma_c * sqrt(dt)
         // We assume a nominal keyframe spacing of 10Hz for defining the model, as the exact dt varies per frames.
-        const double dt = 0.01;
+        const double dt = 0.1;
         const double sigma_accel_rw = cfg.imu.accel_random_walk * std::sqrt(dt);
         const double sigma_gyro_rw = cfg.imu.gyro_random_walk * std::sqrt(dt);
         bias_rw_noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << sigma_accel_rw, sigma_accel_rw, sigma_accel_rw, sigma_gyro_rw, sigma_gyro_rw, sigma_gyro_rw).finished());
@@ -85,6 +85,8 @@ namespace caai_slam {
         new_timestamps[sym_vel(kf->id)] = kf->_timestamp;
         new_timestamps[sym_bias(kf->id)] = kf->_timestamp;
 
+        const gtsam::Pose3 body_p_sensor(_config._extrinsics.t_cam_imu.matrix().inverse());
+
         // 5. Visual factors (landmarks)
         for (size_t i = 0; i < kf->keypoints.size(); ++i) {
             const auto& mp = kf->map_points[i];
@@ -113,7 +115,13 @@ namespace caai_slam {
         latest_state.velocity = prop_state.velocity();
 
         // Bias remains prev_bias until optimization updates it.
-}
+    }
+
+    void fixed_lag_smoother::add_pose_prior(const uint64_t kf_id, const se3& pose) {
+        std::lock_guard<std::mutex> lock(mutex);
+        // Add a strong prior to pull the graph to the loop-corrected pose.
+        const auto noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.01, 0.01, 0.01, 0.02, 0.02, 0.02).finished());
+    }
 
     std::vector<uint64_t> fixed_lag_smoother::optimize() {
         std::lock_guard<std::mutex> lock(mutex);
