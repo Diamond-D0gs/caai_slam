@@ -16,10 +16,23 @@ endif()
 # Options
 option(BUILD_TESTS "Build unit tests" OFF)
 option(BUILD_EXAMPLES "Build example applications" ON)
+option(BUILD_VISUALIZER "Build the ImGui/OpenGL visualizer (Win32 ARM64 optimized)" ON)
 option(USE_SYSTEM_GTSAM "Use system-installed GTSAM instead of building from source" ON)
 option(USE_SYSTEM_TEASER "Use system-installed TEASER++ instead of building from source" ON)
 option(ENABLE_SIMD "Enable SIMD optimizations (SSE4/AVX on x86, NEON on ARM)" ON)
 option(MINIMAL_BUILD "Strip unnecessary components for smaller binary" OFF)
+option(USE_VCPKG "Use vcpkg for dependency management (recommended for Windows)" OFF)
+
+# =============================================================================
+# vcpkg Integration (Optional)
+# =============================================================================
+if(USE_VCPKG)
+    if(DEFINED CMAKE_TOOLCHAIN_FILE)
+        message(STATUS "Using vcpkg toolchain: ${CMAKE_TOOLCHAIN_FILE}")
+    else()
+        message(WARNING "USE_VCPKG=ON but CMAKE_TOOLCHAIN_FILE not set. Set via: -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake")
+    endif()
+endif()
 
 # =============================================================================
 # Platform Detection
@@ -31,6 +44,10 @@ if(WIN32)
     # Windows-specific flags
     add_definitions(-D_USE_MATH_DEFINES)
     add_definitions(-DNOMINMAX)
+    
+    # Win32 API definitions
+    add_definitions(-DWIN32_LEAN_AND_MEAN)
+    add_definitions(-D_WINDOWS)
 elseif(UNIX AND NOT APPLE)
     message(STATUS "Configuring for Linux")
     set(PLATFORM_LINUX TRUE)
@@ -47,7 +64,7 @@ include(CheckCXXCompilerFlag)
 # Detect architecture
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|ARM64|arm64")
     set(ARCH_ARM64 TRUE)
-    message(STATUS "Architecture: ARM64")
+    message(STATUS "Architecture: ARM64 (e.g., Snapdragon X Elite)")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
     set(ARCH_ARM32 TRUE)
     message(STATUS "Architecture: ARM32")
@@ -59,19 +76,31 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|i386")
     message(STATUS "Architecture: x86")
 endif()
 
-# SIMD flags based on architecture
+# SIMD flags based on architecture and compiler
 if(ENABLE_SIMD)
     if(ARCH_ARM64)
-        # ARM64 has NEON by default
-        set(SIMD_FLAGS "-march=armv8-a")
-        add_definitions(-DUSE_NEON)
-        message(STATUS "SIMD: NEON (ARM64)")
-    elseif(ARCH_ARM32)
-        check_cxx_compiler_flag("-mfpu=neon" COMPILER_SUPPORTS_NEON)
-        if(COMPILER_SUPPORTS_NEON)
-            set(SIMD_FLAGS "-mfpu=neon -mfloat-abi=hard")
+        if(MSVC)
+            # MSVC ARM64: NEON is auto-enabled; /arch is semantic only
+            message(STATUS "SIMD: NEON (ARM64, MSVC auto-enabled)")
             add_definitions(-DUSE_NEON)
-            message(STATUS "SIMD: NEON (ARM32)")
+            # No additional /arch flag needed
+        else()
+            # GCC/Clang ARM64
+            set(SIMD_FLAGS "-march=armv8-a")
+            add_definitions(-DUSE_NEON)
+            message(STATUS "SIMD: NEON (ARM64, explicit march)")
+        endif()
+    elseif(ARCH_ARM32)
+        if(MSVC)
+            message(STATUS "SIMD: NEON (ARM32, MSVC)")
+            add_definitions(-DUSE_NEON)
+        else()
+            check_cxx_compiler_flag("-mfpu=neon" COMPILER_SUPPORTS_NEON)
+            if(COMPILER_SUPPORTS_NEON)
+                set(SIMD_FLAGS "-mfpu=neon -mfloat-abi=hard")
+                add_definitions(-DUSE_NEON)
+                message(STATUS "SIMD: NEON (ARM32)")
+            endif()
         endif()
     elseif(ARCH_X64 OR ARCH_X86)
         if(MSVC)
@@ -80,11 +109,11 @@ if(ENABLE_SIMD)
             if(COMPILER_SUPPORTS_AVX2)
                 set(SIMD_FLAGS "/arch:AVX2")
                 add_definitions(-DUSE_AVX2)
-                message(STATUS "SIMD: AVX2")
+                message(STATUS "SIMD: AVX2 (MSVC)")
             else()
                 set(SIMD_FLAGS "/arch:SSE4.2")
                 add_definitions(-DUSE_SSE4)
-                message(STATUS "SIMD: SSE4.2")
+                message(STATUS "SIMD: SSE4.2 (MSVC)")
             endif()
         else()
             # GCC/Clang
@@ -111,9 +140,14 @@ if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3 /MP ${SIMD_FLAGS}")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /Ob2 /DNDEBUG")
     set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /O1 /Ob1 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /ZI /Od")
     
     # Disable specific warnings
     add_definitions(/wd4267 /wd4244 /wd4305)  # Conversion warnings
+    add_definitions(/wd4996)  # Deprecation warnings
+    
+    # Character set
+    add_definitions(/DUNICODE /D_UNICODE)
 else()
     # GCC/Clang flags
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra ${SIMD_FLAGS}")
@@ -121,7 +155,7 @@ else()
     set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -Os -DNDEBUG")
     
     if(MINIMAL_BUILD)
-        # Flags for minimal binary size (from conversation)
+        # Flags for minimal binary size
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffunction-sections -fdata-sections")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections")
@@ -136,7 +170,7 @@ endif()
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 message(STATUS "Eigen3 found: ${EIGEN3_INCLUDE_DIR}")
 
-# Eigen alignment for NEON/SSE (from conversation)
+# Eigen alignment for NEON/SSE (critical for ARM64)
 add_definitions(-DEIGEN_MAKE_ALIGNED_OPERATOR_NEW)
 
 # --- OpenCV (AKAZE, Feature Matching) ---
@@ -156,33 +190,32 @@ if(USE_SYSTEM_GTSAM)
     message(STATUS "GTSAM found: ${GTSAM_VERSION}")
 else()
     # Build GTSAM from source with minimal configuration
-    # (Settings from conversation for stripped-down build)
     include(FetchContent)
     
     set(GTSAM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GTSAM_BUILD_EXAMPLES_ALWAYS OFF CACHE BOOL "" FORCE)
     set(GTSAM_BUILD_UNSTABLE ON CACHE BOOL "" FORCE)
     set(GTSAM_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
-    set(GTSAM_ENABLE_BOOST_SERIALIZATION OFF CACHE BOOL "" FORCE)  # Critical size saver
-    set(GTSAM_WITH_TBB OFF CACHE BOOL "" FORCE)  # Disable threading dependency
+    set(GTSAM_ENABLE_BOOST_SERIALIZATION OFF CACHE BOOL "" FORCE)
+    set(GTSAM_WITH_TBB OFF CACHE BOOL "" FORCE)
     set(GTSAM_USE_SYSTEM_EIGEN ON CACHE BOOL "" FORCE)
     set(GTSAM_BUILD_WITH_MARCH_NATIVE OFF CACHE BOOL "" FORCE)
     
     FetchContent_Declare(
         gtsam
         GIT_REPOSITORY https://github.com/borglab/gtsam.git
-        GIT_TAG        4.2  # Stable release
+        GIT_TAG        4.2
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(gtsam)
-    message(STATUS "GTSAM will be built from source (minimal config)")
+    message(STATUS "GTSAM will be built from source")
 endif()
 
 # --- TEASER++ (Robust Registration) ---
 if(USE_SYSTEM_TEASER)
     find_package(teaserpp QUIET)
     if(NOT teaserpp_FOUND)
-        message(WARNING "TEASER++ not found in system, will attempt to fetch")
+        message(WARNING "TEASER++ not found, will attempt to fetch")
         set(USE_SYSTEM_TEASER OFF)
     else()
         message(STATUS "TEASER++ found")
@@ -208,34 +241,85 @@ if(NOT USE_SYSTEM_TEASER)
 endif()
 
 # --- FBoW (Fast Bag of Words) ---
-# Integrated directly in thirdparty/ to avoid build system conflicts
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/fbow-master/CMakeLists.txt")
     message(STATUS "Using bundled FBoW from thirdparty/")
     add_subdirectory(thirdparty/fbow-master)
 else()
-    message(FATAL_ERROR "FBoW source not found in thirdparty/fbow-master. Please run: \n"
-            "  cd thirdparty && git clone https://github.com/rmsalinas/fbow.git")
+    message(FATAL_ERROR "FBoW source not found. Run: cd thirdparty && git clone https://github.com/rmsalinas/fbow.git fbow-master")
+endif()
+
+# --- ImGui + OpenGL (For Visualizer) ---
+if(BUILD_VISUALIZER)
+    find_package(OpenGL REQUIRED)
+    message(STATUS "OpenGL found")
+    
+    # Check for glfw3 or SDL2
+    find_package(glfw3 QUIET)
+    if(NOT glfw3_FOUND)
+        message(STATUS "glfw3 not found, will use OpenCV for window (via ImGui backend)")
+        set(USE_GLFW FALSE)
+    else()
+        message(STATUS "glfw3 found")
+        set(USE_GLFW TRUE)
+    endif()
+    
+    # Check for ImGui
+    find_package(imgui QUIET)
+    if(NOT imgui_FOUND)
+        message(STATUS "ImGui not found, fetching from source...")
+        include(FetchContent)
+        
+        FetchContent_Declare(
+            imgui
+            GIT_REPOSITORY https://github.com/ocornut/imgui.git
+            GIT_TAG        v1.89.9
+            GIT_SHALLOW    TRUE
+        )
+        FetchContent_MakeAvailable(imgui)
+        
+        # Create ImGui library
+        add_library(imgui STATIC
+            ${imgui_SOURCE_DIR}/imgui.cpp
+            ${imgui_SOURCE_DIR}/imgui_demo.cpp
+            ${imgui_SOURCE_DIR}/imgui_draw.cpp
+            ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+            ${imgui_SOURCE_DIR}/imgui_tables.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+            ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
+        )
+        target_include_directories(imgui PUBLIC
+            ${imgui_SOURCE_DIR}
+            ${imgui_SOURCE_DIR}/backends
+        )
+        target_link_libraries(imgui PUBLIC OpenGL::OpenGL)
+        
+        set(IMGUI_INCLUDE_DIRS ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+        set(imgui_LIBRARIES imgui)
+    else()
+        message(STATUS "ImGui found: ${imgui_DIR}")
+    endif()
 endif()
 
 # =============================================================================
 # Source Files
 # =============================================================================
+
 set(SLAM_SOURCES
     src/core/slam_system.cpp
     src/core/config.cpp
     
-    # Frontend (Feature Detection/Matching)
+    # Frontend
     src/frontend/feature_extractor.cpp
     src/frontend/feature_matcher.cpp
     src/frontend/frame.cpp
     src/frontend/keyframe.cpp
     
-    # Visual-Inertial Odometry
+    # VIO
     src/vio/imu_preintegration.cpp
     src/vio/vio_initializer.cpp
     src/vio/visual_frontend.cpp
     
-    # Backend (Graph Optimization)
+    # Backend
     src/backend/graph_optimizer.cpp
     src/backend/fixed_lag_smoother.cpp
     src/backend/marginalization.cpp
@@ -255,6 +339,7 @@ set(SLAM_SOURCES
     src/utils/time_sync.cpp
     src/utils/calibration.cpp
     src/utils/triangulation.cpp
+    src/utils/euroc_loader.cpp
 )
 
 set(SLAM_HEADERS
@@ -287,6 +372,7 @@ set(SLAM_HEADERS
     include/caai_slam/utils/time_sync.hpp
     include/caai_slam/utils/calibration.hpp
     include/caai_slam/utils/triangulation.hpp
+    include/caai_slam/utils/euroc_loader.hpp
 )
 
 # =============================================================================
@@ -323,13 +409,74 @@ set_target_properties(caai_slam PROPERTIES
 # Executable Targets
 # =============================================================================
 if(BUILD_EXAMPLES)
-    # Main CAAI-SLAM executable
-    add_executable(caai_slam_node
-        src/main.cpp
-    )
-    target_link_libraries(caai_slam_node PRIVATE caai_slam)
+    # Main CAAI-SLAM node (dataset playback + visualization)
+    if(BUILD_VISUALIZER)
+        # Find GLAD (OpenGL loader)
+        find_package(glad QUIET)
+        if(NOT glad_FOUND)
+            message(STATUS "GLAD not found, fetching from source...")
+            include(FetchContent)
+            
+            FetchContent_Declare(
+                glad
+                GIT_REPOSITORY https://github.com/Dav1dde/glad.git
+                GIT_TAG        v0.1.36
+                GIT_SHALLOW    TRUE
+            )
+            FetchContent_MakeAvailable(glad)
+            
+            set(glad_LIBRARIES glad)
+        else()
+            message(STATUS "GLAD found")
+        endif()
+        
+        # Find GLM (Math library)
+        find_package(glm QUIET)
+        if(NOT glm_FOUND)
+            message(STATUS "GLM not found, fetching from source...")
+            include(FetchContent)
+            
+            FetchContent_Declare(
+                glm
+                GIT_REPOSITORY https://github.com/g-truc/glm.git
+                GIT_TAG        0.9.9.8
+                GIT_SHALLOW    TRUE
+            )
+            FetchContent_MakeAvailable(glm)
+            
+            set(GLM_INCLUDE_DIRS ${glm_SOURCE_DIR})
+        else()
+            message(STATUS "GLM found")
+        endif()
+        
+        add_executable(caai_slam_visualizer
+            src/main.cpp
+        )
+        target_include_directories(caai_slam_visualizer PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${IMGUI_INCLUDE_DIRS}
+            ${GLM_INCLUDE_DIRS}
+        )
+        target_link_libraries(caai_slam_visualizer PRIVATE
+            caai_slam
+            OpenGL::OpenGL
+            ${imgui_LIBRARIES}
+            ${glad_LIBRARIES}
+        )
+        
+        # Link glfw if available
+        if(USE_GLFW)
+            target_link_libraries(caai_slam_visualizer PRIVATE glfw)
+        else()
+            # If GLFW not found, try to find it
+            find_package(glfw3 REQUIRED)
+            target_link_libraries(caai_slam_visualizer PRIVATE glfw)
+        endif()
+    else()
+        message(STATUS "BUILD_VISUALIZER=OFF, skipping visualizer executable")
+    endif()
     
-    # Dataset evaluation tool
+    # Evaluation tool
     add_executable(evaluate_dataset
         examples/evaluate_dataset.cpp
     )
@@ -376,7 +523,12 @@ install(TARGETS caai_slam
 )
 
 if(BUILD_EXAMPLES)
-    install(TARGETS caai_slam_node evaluate_dataset calibrate_camera_imu
+    if(BUILD_VISUALIZER)
+        install(TARGETS caai_slam_visualizer
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+    endif()
+    install(TARGETS evaluate_dataset calibrate_camera_imu
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
 endif()
@@ -415,16 +567,19 @@ install(FILES
 # =============================================================================
 message(STATUS "")
 message(STATUS "========== CAAI_SLAM Configuration ==========")
-message(STATUS "  Version:          ${PROJECT_VERSION}")
-message(STATUS "  Build type:       ${CMAKE_BUILD_TYPE}")
-message(STATUS "  Platform:         ${CMAKE_SYSTEM_NAME}")
-message(STATUS "  Architecture:     ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "  SIMD flags:       ${SIMD_FLAGS}")
-message(STATUS "  OpenCV version:   ${OpenCV_VERSION}")
-message(STATUS "  System GTSAM:     ${USE_SYSTEM_GTSAM}")
-message(STATUS "  System TEASER++:  ${USE_SYSTEM_TEASER}")
-message(STATUS "  Build tests:      ${BUILD_TESTS}")
-message(STATUS "  Build examples:   ${BUILD_EXAMPLES}")
-message(STATUS "  Minimal build:    ${MINIMAL_BUILD}")
-message(STATUS "=================================================")
+message(STATUS "  Version:              ${PROJECT_VERSION}")
+message(STATUS "  Build type:           ${CMAKE_BUILD_TYPE}")
+message(STATUS "  Platform:             ${CMAKE_SYSTEM_NAME}")
+message(STATUS "  Architecture:         ${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS "  Compiler:             ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "  SIMD:                 ${SIMD_FLAGS}")
+message(STATUS "  OpenCV version:       ${OpenCV_VERSION}")
+message(STATUS "  GTSAM (system):       ${USE_SYSTEM_GTSAM}")
+message(STATUS "  TEASER++ (system):    ${USE_SYSTEM_TEASER}")
+message(STATUS "  Build tests:          ${BUILD_TESTS}")
+message(STATUS "  Build examples:       ${BUILD_EXAMPLES}")
+message(STATUS "  Build visualizer:     ${BUILD_VISUALIZER}")
+message(STATUS "  Use vcpkg:            ${USE_VCPKG}")
+message(STATUS "  Minimal build:        ${MINIMAL_BUILD}")
+message(STATUS "==============================================")
 message(STATUS "")
