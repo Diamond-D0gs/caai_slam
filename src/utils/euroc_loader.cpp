@@ -179,7 +179,8 @@ namespace caai_slam {
             }
             camera_frames[camera_idx].image = out_image;
             camera_frames[camera_idx].is_loaded = true;
-        } else {
+        }
+        else {
             out_image = out_frame.image.clone();
         }
 
@@ -191,21 +192,20 @@ namespace caai_slam {
         out_imu_buffer.clear();
 
         while (imu_idx < imu_measurements.size() && imu_measurements[imu_idx].ts <= t_camera) {
-            out_imu_buffer.push_back(imu_measurements[imu_idx]);
-            imu_idx++;
+            const imu_data _imu_data = imu_measurements[imu_idx++];
+            out_imu_buffer.emplace_back(_imu_data.ts, _imu_data.accel, _imu_data.gyro);
         }
     }
 
     bool euroc_loader::get_next_imu_batch(size_t count, std::vector<imu_measurement>& out_imu) {
         out_imu.clear();
 
-        if (imu_idx >= imu_measurements.size()) {
+        if (imu_idx >= imu_measurements.size())
             return false;
-        }
 
         for (size_t i = 0; i < count && imu_idx < imu_measurements.size(); ++i) {
-            out_imu.push_back(imu_measurements[imu_idx]);
-            imu_idx++;
+            const imu_data _imu_data = imu_measurements[imu_idx++];
+            out_imu.emplace_back(_imu_data.ts, _imu_data.accel, _imu_data.gyro);
         }
 
         return !out_imu.empty();
@@ -229,9 +229,8 @@ namespace caai_slam {
     }
 
     bool euroc_loader::get_groundtruth_pose(const timestamp ts, se3& out_pose) const {
-        if (gt_poses.empty()) {
+        if (gt_poses.empty())
             return false;
-        }
 
         // Find closest pose by timestamp
         size_t best_idx = 0;
