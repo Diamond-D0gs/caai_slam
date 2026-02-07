@@ -119,7 +119,8 @@ namespace caai_slam {
             // Criteria for culling:
             // 1. Check the explicit 'bad' flag.
             // 2. Check the observation count.
-            if (mp->is_bad || mp->get_observation_count() < 2) {
+            // PATCH: Increased minimum observations to 3 to cull underconstrained points earlier
+            if (mp->is_bad || mp->get_observation_count() < 3) {
                 // Nullify references in keyframes to prevent dangling pointers.
                 for (const auto& [kf, feat_id] : mp->get_observations())
                     if (kf) {

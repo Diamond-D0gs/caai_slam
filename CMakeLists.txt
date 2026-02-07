@@ -22,6 +22,7 @@ option(USE_SYSTEM_TEASER "Use system-installed TEASER++ instead of building from
 option(ENABLE_SIMD "Enable SIMD optimizations (SSE4/AVX on x86, NEON on ARM)" ON)
 option(MINIMAL_BUILD "Strip unnecessary components for smaller binary" OFF)
 option(USE_VCPKG "Use vcpkg for dependency management (recommended for Windows)" OFF)
+option(BUILD_TOOLS "Build utility tools (vocab generator, etc.)" ON)
 
 # =============================================================================
 # vcpkg Integration (Optional)
@@ -288,6 +289,10 @@ if(BUILD_VISUALIZER)
             ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
         )
 
+        if(USE_GLFW)
+            list(APPEND IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
+        endif()
+
         # 2. Conditionally append the Windows backend ONLY if on Windows
         if(WIN32)
             list(APPEND IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
@@ -308,6 +313,35 @@ if(BUILD_VISUALIZER)
     else()
         message(STATUS "ImGui found: ${imgui_DIR}")
     endif()
+endif()
+
+# =============================================================================
+# Tools
+# =============================================================================
+if(BUILD_TOOLS)
+    # AKAZE Vocabulary Generator for FBoW
+    add_executable(generate_akaze_vocab
+        tools/generate_akaze_vocab.cpp
+    )
+    target_include_directories(generate_akaze_vocab PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/fbow-master/src
+    )
+    target_link_libraries(generate_akaze_vocab PRIVATE
+        ${OpenCV_LIBS}
+        fbow
+    )
+    target_compile_features(generate_akaze_vocab PRIVATE cxx_std_17)
+    # Link stdc++fs on older GCC (< 9)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
+        target_link_libraries(generate_akaze_vocab PRIVATE stdc++fs)
+    endif()
+    message(STATUS "Building tools: generate_akaze_vocab")
+endif()
+
+if(BUILD_TOOLS)
+    install(TARGETS generate_akaze_vocab
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
 endif()
 
 # =============================================================================
@@ -407,6 +441,7 @@ target_link_libraries(caai_slam
         Eigen3::Eigen
         ${OpenCV_LIBS}
         gtsam
+        gtsam_unstable
         teaser_registration
         fbow
 )

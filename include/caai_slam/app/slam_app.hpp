@@ -29,6 +29,8 @@ namespace caai_slam {
             size_t total_map_points;
             double tracking_quality; // 0.0 to 1.0
             std::string status_message;
+            cv::Mat current_image;                  // The image to render
+            std::vector<cv::KeyPoint> keypoints;    // Keypoints to draw on top
         };
 
         struct performance_stats {

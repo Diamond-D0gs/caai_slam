@@ -36,14 +36,12 @@ namespace caai_slam {
         _imu_preintegration = std::make_unique<imu_preintegration>(_config);
 
         // Initialize loop detector vocabulary
-        // Assuming path is relative or defined in config; hardcoded for now or loaded if available
-        // _loop_detector->load_vocabulary("orb_vocab.fbow");
+        _loop_detector->load_vocabulary("/home/gabriel/caai_slam/vocab/akaze_vocab.fbow");
     }
 
     slam_system::~slam_system() = default;
 
     void slam_system::process_initialization(const cv::Mat& image, const double ts) {
-        // Predict pose is identity for initalization
         se3 identity;
         const auto frame = _visual_frontend->process_image(image, ts, identity);
 
@@ -60,18 +58,26 @@ namespace caai_slam {
         {
             std::lock_guard<std::mutex> lock(mutex);
             current_state = init_state;
+            
+            // FIX: Set last_imu_time to the initialization timestamp so the first
+            // IMU measurement in TRACKING mode computes a correct dt instead of
+            // using the fallback 0.005s. Without this, if there's a gap between
+            // the last init IMU and the first tracking IMU, the first dt could be
+            // incorrect (either the 5ms fallback or a very large value).
+            last_imu_time = init_state._timestamp;
         }
 
         // 1. Initialize backend with first keyframe (priors)
-        // We need to convert the last initialization frame into a keyframe.
         auto kf = std::make_shared<keyframe>(ts, gtsam::Pose3(init_state.pose.matrix()));
-        // Copy visual data from frame to keyframe
         kf->descriptors = frame->descriptors;
         kf->keypoints = frame->keypoints;
+        kf->map_points.resize(kf->keypoints.size(), nullptr);
         
         _fixed_lag_smoother->initialize(kf, init_state);
         _local_map->add_keyframe(kf);
         last_keyframe = kf;
+
+        _loop_closure_optimizer->add_first_keyframe(kf, init_state);
 
         // 2. Reset preintegration with estimated bias
         _imu_preintegration->reset(init_state.bias);
@@ -94,7 +100,7 @@ namespace caai_slam {
         // Update current state pose for visualization/output.
         {
             std::lock_guard<std::mutex> lock(mutex);
-            current_state.velocity = predicted_state.velocity; // Approximate until optimization
+            current_state.velocity = predicted_state.velocity;
             current_state.pose = curr_frame->pose;
             current_state._timestamp = ts;
         }
@@ -105,6 +111,9 @@ namespace caai_slam {
     }
 
     void slam_system::create_and_insert_keyframe(const std::shared_ptr<frame>& curr_frame) {
+        if (!curr_frame)
+            return;
+        
         // 1. Create keyframe
         auto new_kf = std::make_shared<keyframe>(curr_frame->_timestamp, gtsam::Pose3(curr_frame->pose.matrix()));
         new_kf->descriptors = curr_frame->descriptors;
@@ -115,6 +124,9 @@ namespace caai_slam {
             new_kf->map_points.resize(new_kf->keypoints.size(), nullptr);
 
         if (last_keyframe) {
+            if (last_keyframe->map_points.size() < last_keyframe->keypoints.size())
+                last_keyframe->map_points.resize(last_keyframe->keypoints.size(), nullptr);
+
             std::vector<cv::DMatch> matches = _feature_matcher->match(new_kf->descriptors, last_keyframe->descriptors);
 
             const gtsam::Pose3 p_curr = new_kf->get_pose();
@@ -130,11 +142,10 @@ namespace caai_slam {
             const se3 pose_cam_last = t_world_kf_last * t_ic;
 
             for (const auto& m : matches) {
-                // Ensure we have observations in both frames
-                if (m.queryIdx >= new_kf->keypoints.size() || m.trainIdx >= last_keyframe->keypoints.size())
+                if (m.queryIdx >= static_cast<int>(new_kf->keypoints.size()) || 
+                    m.trainIdx >= static_cast<int>(last_keyframe->keypoints.size()))
                     continue;
                 
-                // Only triangulate if the point does not exist in either
                 if (!new_kf->map_points[m.queryIdx] && !last_keyframe->map_points[m.trainIdx]) {
                     const double u0 = last_keyframe->keypoints[m.trainIdx].pt.x;
                     const double v0 = last_keyframe->keypoints[m.trainIdx].pt.y;
@@ -146,8 +157,11 @@ namespace caai_slam {
 
                     vec3 pt_world;
                     if (triangulate_dlt(pose_cam_last, norm0, pose_cam_curr, norm1, pt_world)) {
-                        // Check parallax angle
                         if (compute_parallax(pose_cam_last, pose_cam_curr, pt_world) < _config.frontend.parallax_min)
+                            continue;
+
+                        const vec3 p_cam = pose_cam_curr.inverse() * pt_world;
+                        if (p_cam.z() < 0.1 || p_cam.z() > 50.0)
                             continue;
 
                         auto mp = std::make_shared<map_point>(pt_world, new_kf->descriptors.row(m.queryIdx));
@@ -163,7 +177,6 @@ namespace caai_slam {
                     }
                 }
                 else if (!new_kf->map_points[m.queryIdx] && last_keyframe->map_points[m.trainIdx]) {
-                    // Link existing point
                     auto mp = last_keyframe->map_points[m.trainIdx];
                     new_kf->map_points[m.queryIdx] = mp;
                     mp->add_observation(new_kf, m.queryIdx);
@@ -181,11 +194,32 @@ namespace caai_slam {
             bias_to_reset = current_state.bias;
         }
 
-        // 3. Add to backend (optimization)
-        // Get preintegrated measurements since last keyframe
+        // 3. Get preintegrated measurements since last keyframe
         const auto imu_factors = _imu_preintegration->get_and_reset(bias_to_reset);
 
+        // FIX: Guard against degenerate preintegration.
+        // If deltaTij is near-zero, the CombinedImuFactor will have a near-singular
+        // covariance (infinite information) because no time has elapsed. This creates
+        // an extremely tight constraint that dominates the Hessian and causes
+        // IndeterminantLinearSystemException.
+        if (imu_factors.deltaTij() < 1e-4) {
+            std::cerr << "[System] WARNING: Skipping keyframe insertion — degenerate "
+                      << "IMU preintegration (deltaTij=" << imu_factors.deltaTij() 
+                      << "s). This keyframe would create a singular factor." << std::endl;
+            
+            // Don't add to backend — the IMU factor would be degenerate.
+            // Reset preintegration and keep accumulating.
+            _imu_preintegration->reset(bias_to_reset);
+            
+            // Remove keyframe from maps since we're not adding it to the backend
+            // (leaving it in local_map without backend would cause inconsistency)
+            // Note: This is a rare edge case.
+            last_keyframe = new_kf; // Still update tracking reference
+            return;
+        }
+
         _fixed_lag_smoother->add_keyframe(new_kf, imu_factors, last_keyframe->id);
+        _loop_closure_optimizer->add_keyframe(new_kf, imu_factors, last_keyframe->id);      
 
         // Optimize
         const auto marginalized = _fixed_lag_smoother->optimize();
@@ -199,7 +233,6 @@ namespace caai_slam {
         {
             std::lock_guard<std::mutex> lock(mutex);
             current_state = _fixed_lag_smoother->get_latest_state();
-            // Sync preintegrator bias with optimized bias
             _imu_preintegration->reset(current_state.bias);
         }
 
@@ -210,10 +243,7 @@ namespace caai_slam {
         if (loop_res.is_detected) {
             std::cout << "Loop detected between KF " << new_kf->id << " and KF " << loop_res.match_kf->id << std::endl;
             
-            // Add loop constraint to seperate graph optimizer
             _loop_closure_optimizer->add_loop_constraint(new_kf->id, loop_res.match_kf->id, loop_res.t_match_query);
-
-            // Run pose graph optimization on all keyframes
             correct_loop_closure(new_kf);
         }
 
@@ -226,27 +256,42 @@ namespace caai_slam {
         imu_measurement synced = meas;
         synced._timestamp = _time_sync->imu_to_cam(meas._timestamp);
 
-        if (status == system_status::NOT_INITIALIZED || status == system_status::INITIALIZING)
+        if (status == system_status::NOT_INITIALIZED || status == system_status::INITIALIZING) {
             _vio_initializer->add_imu(synced);
+            
+            // FIX: Also track last_imu_time during initialization so the transition
+            // to TRACKING doesn't have a stale timestamp. This prevents incorrect dt
+            // on the first few IMU measurements after init completes.
+            std::lock_guard<std::mutex> lock(mutex);
+            last_imu_time = synced._timestamp;
+        }
         else if (status == system_status::TRACKING) {
-            // In tracking, we integrate relative to the last keyframe
-            // dt is handled internally by tracking previous timestamp
             double dt = 0.0;
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                dt = (last_imu_time < 0.0) ? 0.005 : (synced._timestamp - last_imu_time);
+                if (last_imu_time < 0.0) {
+                    // FIX: Use nominal dt from IMU frequency instead of hardcoded 0.005
+                    dt = 1.0 / _config.imu.frequency;
+                } else {
+                    dt = synced._timestamp - last_imu_time;
+                }
                 last_imu_time = synced._timestamp;
             }
             
-            if (dt > 0.0)
+            // FIX: Validate dt before integrating.
+            // Negative dt indicates timestamp regression (bad data or sync issue).
+            // Very large dt indicates dropped packets or timestamp discontinuity.
+            if (dt > 0.0 && dt < 0.5)
                 _imu_preintegration->integrate(synced, dt);
+            else if (dt < 0.0)
+                std::cerr << "[IMU] WARNING: Negative dt=" << dt 
+                          << "s — timestamp regression detected" << std::endl;
         }
     }
 
     void slam_system::process_image(const cv::Mat& image, const double ts) {
         system_status curr_status = status.load();
         
-        // Handle initialization state machine
         if (curr_status == system_status::NOT_INITIALIZED) {
             status = system_status::INITIALIZING;
             curr_status = system_status::INITIALIZING;
@@ -259,10 +304,8 @@ namespace caai_slam {
     }
 
     void slam_system::correct_loop_closure(std::shared_ptr<keyframe>& curr_kf) {
-        // 1. Optimize the pose graph
         _loop_closure_optimizer->optimize(curr_kf, _local_map->get_all_keyframes());
 
-        // 2. Update current state with corrected pose
         const se3 corrected_pose(curr_kf->get_pose().rotation().matrix(), curr_kf->get_pose().translation());
         _fixed_lag_smoother->add_pose_prior(curr_kf->id, corrected_pose);
         {
@@ -292,20 +335,16 @@ namespace caai_slam {
 
         std::cout << "[System] Resetting CAAI-SLAM..." << std::endl;
 
-        // 1. Reset status
         status = system_status::NOT_INITIALIZED;
 
-        // 2. Clear tracking state
         last_keyframe.reset();
         last_image_timestamp = -1.0;
         last_imu_time = -1.0;
 
-        // 3. Reset subsystems
         _keyframe_database->clear();
         _vio_initializer->reset();
         _loop_detector->reset();
 
-        // 4. Re-instantiate complex subsystems
         _local_map = std::make_shared<local_map>(_config);
         _visual_frontend = std::make_unique<visual_frontend>(_config, _local_map);
         _fixed_lag_smoother = std::make_unique<fixed_lag_smoother>(_config);

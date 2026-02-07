@@ -1,0 +1,67 @@
+%YAML:1.0
+
+# ==============================================================================
+# Camera Parameters (from EuRoC cam0/sensor.yaml)
+# ==============================================================================
+Camera:
+  width: 752
+  height: 480
+  fx: 458.654
+  fy: 457.296
+  cx: 367.215
+  cy: 248.375
+  
+  # Distortion (RadTan: k1, k2, p1, p2)
+  # EuRoC coeffs: [-0.28340811, 0.07395907, 0.00019359, 1.76187114e-05]
+  k1: -0.28340811
+  k2: 0.07395907
+  p1: 0.00019359
+  p2: 1.76187114e-05
+
+# ==============================================================================
+# Extrinsics (Camera to IMU)
+# ==============================================================================
+Extrinsics:
+  # T_cam_imu: Transformation from Camera to IMU (T_CI).
+  # Calculated as inverse of EuRoC T_BS (T_IC).
+  T_cam_imu: !!opencv-matrix
+    rows: 4
+    cols: 4
+    dt: d
+    data: [ 0.01486554,  0.99955725, -0.02577444,  0.06522273,
+           -0.99988093,  0.01496721,  0.00375619, -0.02070636,
+            0.00414030,  0.02571553,  0.99966073, -0.00805466,
+            0.0,         0.0,         0.0,         1.0 ]
+            
+  time_offset: 0.0  # Time offset between camera and IMU
+
+# ==============================================================================
+# IMU Parameters (from EuRoC imu0/sensor.yaml)
+# ==============================================================================
+IMU:
+  frequency: 200.0
+  
+  # Noise Densities (Continuous time)
+  accel_noise_density: 2.0000e-3    # [ m / s^2 / sqrt(Hz) ]
+  gyro_noise_density: 1.6968e-04    # [ rad / s / sqrt(Hz) ]
+  
+  # Random Walk
+  accel_random_walk: 3.0000e-3      # [ m / s^3 / sqrt(Hz) ]
+  gyro_random_walk: 1.9393e-05      # [ rad / s^2 / sqrt(Hz) ]
+
+# ==============================================================================
+# Algorithm Parameters
+# ==============================================================================
+Frontend:
+  max_features: 1000            # Max number of AKaze features per frame
+  akaze_threshold: 0.001        # Detection threshold
+  min_matches_tracking: 15      # Min matches to consider tracking successful
+  min_matches_init: 30          # Min matches required for initialization
+
+Backend:
+  lag_time: 5.0                 # Size of the fixed-lag smoother window (seconds)
+  relinearize_threshold: 0.1    # ISAM2 relinearization threshold
+
+LoopClosure:
+  enable: 0                     # 1 = Enable, 0 = Disable
+  similarity_threshold: 0.05    # FBoW similarity score threshold
