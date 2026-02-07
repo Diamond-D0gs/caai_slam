@@ -34,6 +34,8 @@ namespace caai_slam {
         std::stringstream ss(line);
         std::string item;
         while (std::getline(ss, item, ',')) {
+            while (!item.empty() && (item.back() == '\r' || item.back() == ' ' || item.back() == '\t'))
+                item.pop_back();
             result.push_back(item);
         }
         return result;

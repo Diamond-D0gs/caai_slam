@@ -74,8 +74,14 @@ namespace caai_slam {
             vis_state.status = _slam_system.get_status();
 
             const auto& local_map = _slam_system.get_local_map();
-            vis_state.total_keyframes = local_map->num_keyframes();
-            vis_state.total_map_points = local_map->num_map_points();
+            
+            if (local_map) { 
+                vis_state.total_keyframes = local_map->num_keyframes();
+                vis_state.total_map_points = local_map->num_map_points();
+            } else {
+                vis_state.total_keyframes = 0;
+                vis_state.total_map_points = 0;
+            }
 
             // Tracking quality: ratio of matched points to features
             const state cur_state = _slam_system.get_current_state();

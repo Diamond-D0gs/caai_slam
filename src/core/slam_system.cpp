@@ -37,7 +37,7 @@ namespace caai_slam {
 
         // Initialize loop detector vocabulary
         // Assuming path is relative or defined in config; hardcoded for now or loaded if available
-        // _loop_detector->load_vocabulary("orb_vocab.fbow");
+        _loop_detector->load_vocabulary("/home/gabriel/caai_slam/vocab/akaze_vocab.fbow");
     }
 
     slam_system::~slam_system() = default;
@@ -68,6 +68,8 @@ namespace caai_slam {
         // Copy visual data from frame to keyframe
         kf->descriptors = frame->descriptors;
         kf->keypoints = frame->keypoints;
+        // Ensure the map_points vector is sized correctly for the first keyframe
+        kf->map_points.resize(kf->keypoints.size(), nullptr);
         
         _fixed_lag_smoother->initialize(kf, init_state);
         _local_map->add_keyframe(kf);
@@ -105,6 +107,9 @@ namespace caai_slam {
     }
 
     void slam_system::create_and_insert_keyframe(const std::shared_ptr<frame>& curr_frame) {
+        if (!curr_frame)
+            return;
+        
         // 1. Create keyframe
         auto new_kf = std::make_shared<keyframe>(curr_frame->_timestamp, gtsam::Pose3(curr_frame->pose.matrix()));
         new_kf->descriptors = curr_frame->descriptors;
@@ -115,6 +120,9 @@ namespace caai_slam {
             new_kf->map_points.resize(new_kf->keypoints.size(), nullptr);
 
         if (last_keyframe) {
+            if (last_keyframe->map_points.size() < last_keyframe->keypoints.size())
+                last_keyframe->map_points.resize(last_keyframe->keypoints.size(), nullptr);
+
             std::vector<cv::DMatch> matches = _feature_matcher->match(new_kf->descriptors, last_keyframe->descriptors);
 
             const gtsam::Pose3 p_curr = new_kf->get_pose();
