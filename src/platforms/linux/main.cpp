@@ -6,10 +6,71 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
+#include <opencv2/imgproc.hpp>
+#include <opencv2/features2d.hpp>
+
 #include <iostream>
 #include <cmath>
 
 namespace caai_slam {
+
+    // =========================================================================
+    // Helper: manage a single OpenGL texture re-uploaded each frame
+    // =========================================================================
+    struct gl_texture {
+        GLuint id = 0;
+        int width = 0;
+        int height = 0;
+
+        void release() {
+            if (id) { glDeleteTextures(1, &id); id = 0; }
+            width = height = 0;
+        }
+
+        /// Upload a cv::Mat (GRAY, BGR, or BGRA → RGBA for ImGui).
+        void upload(const cv::Mat& src) {
+            if (src.empty()) return;
+
+            cv::Mat rgba;
+            if (src.channels() == 1)
+                cv::cvtColor(src, rgba, cv::COLOR_GRAY2RGBA);
+            else if (src.channels() == 3)
+                cv::cvtColor(src, rgba, cv::COLOR_BGR2RGBA);
+            else if (src.channels() == 4)
+                cv::cvtColor(src, rgba, cv::COLOR_BGRA2RGBA);
+            else
+                return;
+
+            const bool size_changed = (rgba.cols != width || rgba.rows != height);
+
+            if (!id)
+                glGenTextures(1, &id);
+
+            glBindTexture(GL_TEXTURE_2D, id);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+
+            if (size_changed) {
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                             rgba.cols, rgba.rows, 0,
+                             GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
+                width  = rgba.cols;
+                height = rgba.rows;
+            } else {
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                                rgba.cols, rgba.rows,
+                                GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
+            }
+        }
+
+        ImTextureID imgui_id() const {
+            return reinterpret_cast<ImTextureID>(static_cast<intptr_t>(id));
+        }
+    };
+
     /**
      * @brief Linux-specific SLAM application with ImGui visualization
      */
@@ -62,6 +123,8 @@ namespace caai_slam {
             bool is_paused = false;
             bool auto_play = true;
 
+            gl_texture frame_tex; // Persistent texture for the camera frame
+
             while (!glfwWindowShouldClose(window) && !should_close) {
                 glfwPollEvents();
 
@@ -79,7 +142,7 @@ namespace caai_slam {
                 }
 
                 // Render UI
-                render_ui(should_close, is_paused, auto_play);
+                render_ui(should_close, is_paused, auto_play, frame_tex);
 
                 // Rendering
                 ImGui::Render();
@@ -96,6 +159,8 @@ namespace caai_slam {
             }
 
             // 5. Cleanup
+            frame_tex.release();
+
             ImGui_ImplOpenGL3_Shutdown();
             ImGui_ImplGlfw_Shutdown();
             ImGui::DestroyContext();
@@ -112,85 +177,127 @@ namespace caai_slam {
         }
 
     private:
-        void render_ui(bool& should_close, bool& is_paused, bool& auto_play) {
-            const auto vis_state = get_vis_state();
-            const auto perf_stats = get_perf_stats();
+        /// Draw keypoints onto the image and return a BGR copy for display.
+        static cv::Mat draw_keypoints_overlay(const cv::Mat& gray,
+                                               const std::vector<cv::KeyPoint>& kps) {
+            cv::Mat display;
+            if (gray.channels() == 1)
+                cv::cvtColor(gray, display, cv::COLOR_GRAY2BGR);
+            else
+                display = gray.clone();
+
+            if (!kps.empty())
+                cv::drawKeypoints(display, kps, display,
+                                  cv::Scalar(0, 255, 0),              // green
+                                  cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+            return display;
+        }
+
+        void render_ui(bool& should_close, bool& is_paused, bool& auto_play,
+                       gl_texture& frame_tex) {
+            const auto vis = get_vis_state();
+            const auto perf = get_perf_stats();
             const double progress = get_progress();
 
-            // Main window
+            // =================================================================
+            // Camera Frame window
+            // =================================================================
+            if (!vis.current_image.empty()) {
+                cv::Mat display = draw_keypoints_overlay(vis.current_image,
+                                                          vis.keypoints);
+                frame_tex.upload(display);
+            }
+
+            if (frame_tex.id) {
+                ImGui::SetNextWindowPos(ImVec2(420, 10), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(
+                    ImVec2(static_cast<float>(frame_tex.width) + 20,
+                           static_cast<float>(frame_tex.height) + 60),
+                    ImGuiCond_FirstUseEver);
+
+                if (ImGui::Begin("Camera Frame", nullptr,
+                                 ImGuiWindowFlags_NoScrollbar |
+                                 ImGuiWindowFlags_NoScrollWithMouse)) {
+                    // Fit image to available region while keeping aspect ratio
+                    ImVec2 avail = ImGui::GetContentRegionAvail();
+                    float scale = std::min(avail.x / frame_tex.width,
+                                           avail.y / frame_tex.height);
+                    if (scale <= 0.0f) scale = 1.0f;
+                    ImVec2 img_sz(frame_tex.width * scale,
+                                  frame_tex.height * scale);
+
+                    ImGui::Image(frame_tex.imgui_id(), img_sz);
+                }
+                ImGui::End();
+            }
+
+            // =================================================================
+            // Status panel (left side)
+            // =================================================================
             ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(400, 600), ImGuiCond_FirstUseEver);
 
             if (ImGui::Begin("CAAI-SLAM Status", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                // Status section
                 ImGui::SeparatorText("System Status");
-                ImGui::Text("Status: %s", vis_state.status_message.c_str());
+                ImGui::Text("Status: %s", vis.status_message.c_str());
 
                 const char* status_str = "UNKNOWN";
-                switch (vis_state.status) {
+                switch (vis.status) {
                     case system_status::NOT_INITIALIZED:
-                        status_str = "NOT_INITIALIZED";
-                        break;
+                        status_str = "NOT_INITIALIZED"; break;
                     case system_status::INITIALIZING:
-                        status_str = "INITIALIZING";
-                        break;
+                        status_str = "INITIALIZING"; break;
                     case system_status::TRACKING:
-                        status_str = "TRACKING";
-                        break;
+                        status_str = "TRACKING"; break;
                 }
                 ImGui::Text("Mode: %s", status_str);
 
-                // Frame info
                 ImGui::SeparatorText("Frame Processing");
                 ImGui::Text("Current Frame: %zu / %zu", get_current_frame(), get_total_frames());
                 ImGui::ProgressBar(static_cast<float>(progress), ImVec2(-1, 0), "");
+                ImGui::Text("FPS: %.1f", perf.average_fps);
+                ImGui::Text("Frame Time: %.2f ms", perf.total_time_ms);
 
-                ImGui::Text("FPS: %.1f", perf_stats.average_fps);
-                ImGui::Text("Frame Time: %.2f ms", perf_stats.total_time_ms);
-
-                // Map info
                 ImGui::SeparatorText("Mapping");
-                ImGui::Text("Keyframes: %zu", vis_state.total_keyframes);
-                ImGui::Text("Map Points: %zu", vis_state.total_map_points);
-                ImGui::Text("Tracking Quality: %.1f%%", vis_state.tracking_quality * 100.0f);
+                ImGui::Text("Keyframes: %zu", vis.total_keyframes);
+                ImGui::Text("Map Points: %zu", vis.total_map_points);
+                ImGui::Text("Tracking Quality: %.1f%%", vis.tracking_quality * 100.0f);
 
-                // Pose info
                 ImGui::SeparatorText("Pose Estimation");
                 ImGui::Text("Position: (%.3f, %.3f, %.3f)",
-                           vis_state.current_pose.translation.x(),
-                           vis_state.current_pose.translation.y(),
-                           vis_state.current_pose.translation.z());
-
-                const auto q = quat(vis_state.current_pose.rotation);
+                           vis.current_pose.translation.x(),
+                           vis.current_pose.translation.y(),
+                           vis.current_pose.translation.z());
+                const auto q = quat(vis.current_pose.rotation);
                 ImGui::Text("Orientation: (%.3f, %.3f, %.3f, %.3f)",
                            q.x(), q.y(), q.z(), q.w());
 
-                // Controls
                 ImGui::SeparatorText("Controls");
-
                 ImGui::Checkbox("Auto Play", &auto_play);
                 ImGui::SameLine();
-                if (ImGui::Button(is_paused ? "Resume" : "Pause")) {
+                if (ImGui::Button(is_paused ? "Resume" : "Pause"))
                     is_paused = !is_paused;
-                }
-
                 ImGui::SameLine();
                 if (ImGui::Button("Reset")) {
                     reset_slam();
                     is_paused = true;
                     auto_play = false;
                 }
-
                 ImGui::SameLine();
-                if (ImGui::Button("Exit")) {
+                if (ImGui::Button("Exit"))
                     should_close = true;
-                }
 
                 ImGui::End();
             }
 
+            // =================================================================
             // Info window
-            ImGui::SetNextWindowPos(ImVec2(420, 10), ImGuiCond_FirstUseEver);
+            // =================================================================
+            ImGui::SetNextWindowPos(
+                ImVec2(420, frame_tex.id
+                    ? static_cast<float>(frame_tex.height) + 90.0f : 10.0f),
+                ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
 
             if (ImGui::Begin("Information", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {

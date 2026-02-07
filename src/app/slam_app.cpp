@@ -2,6 +2,8 @@
 
 #include "caai_slam/mapping/local_map.hpp"
 
+#include <opencv2/features2d.hpp>
+
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -70,7 +72,7 @@ namespace caai_slam {
 
         // 6. Cache visualization state
         {
-            // 1. Store the image for the UI to draw
+            // Store the image for the UI to draw
             vis_state.current_image = image.clone();
             vis_state.current_pose = _slam_system.get_current_pose();
             vis_state.status = _slam_system.get_status();
@@ -85,9 +87,27 @@ namespace caai_slam {
                 vis_state.total_map_points = 0;
             }
 
+            // ---------------------------------------------------------------
+            // FIX: Extract keypoints from the image for visualization.
+            //
+            // The SLAM pipeline processes features internally but doesn't
+            // expose per-frame keypoints back to the app layer. We run a
+            // lightweight AKAZE detection here purely for the overlay.
+            // This is decoupled from tracking so it doesn't affect the
+            // SLAM state — it's only used for the visualizer texture.
+            // ---------------------------------------------------------------
+            {
+                static cv::Ptr<cv::AKAZE> viz_akaze;
+                if (!viz_akaze)
+                    viz_akaze = cv::AKAZE::create();
+
+                std::vector<cv::KeyPoint> kps;
+                viz_akaze->detect(image, kps);
+                vis_state.keypoints = std::move(kps);
+            }
+
             // Tracking quality: ratio of matched points to features
-            const state cur_state = _slam_system.get_current_state();
-            vis_state.tracking_quality = 0.5; // Placeholder; could compute from matched features
+            vis_state.tracking_quality = 0.5; // Placeholder
 
             // Status message
             switch (vis_state.status) {
