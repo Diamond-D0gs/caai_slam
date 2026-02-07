@@ -19,13 +19,17 @@ namespace caai_slam {
      * 
      * Maintain's a sliding window of states. Old states are automatically
      * marginalized out via the Schur complement when they pass the lag horizon.
+     * 
+     * NOTE: Bias random walk is handled internally by CombinedImuFactor via
+     * biasAccCovariance and biasOmegaCovariance — do NOT add a separate
+     * BetweenFactor<imuBias::ConstantBias> or the bias variables will be
+     * double-constrained, causing singular Hessians during marginalization.
      */
     class fixed_lag_smoother {
     private:
         config _config;
 
         // GTSAM smoother
-        // Note: IncrementalFixedLagSmoother uses ISAM2 internally for the active window.
         std::unique_ptr<gtsam::IncrementalFixedLagSmoother> smoother;
 
         // Buffers for the next update
@@ -34,17 +38,17 @@ namespace caai_slam {
         gtsam::Values new_values;
         
         // Camera calibration
-        boost::shared_ptr<gtsam::Cal3_S2> calibration; // Legacy boost::shared_ptr required for GTSAM factors.
+        boost::shared_ptr<gtsam::Cal3_S2> calibration;
 
         // Noise models
         gtsam::noiseModel::Robust::shared_ptr robust_visual_noise;
         gtsam::noiseModel::Diagonal::shared_ptr velocity_noise;
-        gtsam::noiseModel::Diagonal::shared_ptr bias_rw_noise;
         gtsam::noiseModel::Isotropic::shared_ptr visual_noise;
         gtsam::noiseModel::Diagonal::shared_ptr bias_noise;
         gtsam::noiseModel::Diagonal::shared_ptr pose_noise;
+        // NOTE: bias_rw_noise removed — CombinedImuFactor handles bias evolution.
         
-        // Random walk
+        // Tracking
         std::unordered_set<uint64_t> observed_landmarks;
         state latest_state;
 
@@ -58,47 +62,33 @@ namespace caai_slam {
 
         /**
          * @brief Initialize the graph with the first keyframe (priors).
-         * 
-         * @param kf Keyframe to initialize the graph with.
-         * @param initial_state The initial state of the fixed lag smoother.
          */
         void initialize(const std::shared_ptr<keyframe>& kf, const state& initial_state);
 
         /**
          * @brief Add a new keyframe with IMU preintegration and visual observations.
-         * 
-         * @param kf Current keyframe
-         * @param imu_meas Preintegrated IMU from previous keyframe to current keyframe.
-         * @param prev_kf_id ID of the previous keyframe
          */
         void add_keyframe(const std::shared_ptr<keyframe>& kf, const gtsam::PreintegratedCombinedMeasurements& imu_meas, const uint64_t prev_kf_id);
 
         /**
          * @brief Trigger for the optimization step.
          * 
-         * @return The set of keys that were marginalized out in this step (used to prune local map).
+         * @return The set of keys that were marginalized out in this step.
          */
         std::vector<uint64_t> optimize();
 
         /**
          * @brief Get the latest optimized state estimate.
-         * 
-         * @return The latest state of the fixed lag smoother.
          */
         state get_latest_state() const;
 
         /**
          * @brief Update the internal data of a specific keyframe with optimized values.
-         * 
-         * @param kf Keyframe to update with optimized values.
          */
         void update_keyframe_state(std::shared_ptr<keyframe>& kf);
 
         /**
-         * @brief Inject loop closure priors
-         * 
-         * @param kf_id ID of the keyframe belonging to the prior to inject
-         * @param pose Pose of the keyframe
+         * @brief Inject loop closure priors.
          */
         void add_pose_prior(const uint64_t kf_id, const se3& pose);
     };
