@@ -6,9 +6,12 @@
 #include <map>
 #include <memory>
 #include <bitset>
-#ifndef __ANDROID__
+
+// FIX: Only include x86 intrinsics if we are actually on an x86 platform
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #include <immintrin.h>
 #endif
+
 #include "cpu.h"
 namespace fbow{
 
@@ -241,17 +244,18 @@ private:
             return d;
         }
     };
-#ifdef __ANDROID__
-    //fake elements to allow compilation
+
+// FIX: Correct preprocessor logic to detect if we are NOT on x86
+#if !defined(__x86_64__) && !defined(_M_X64) && !defined(__i386__) && !defined(_M_IX86)
+    
+    //fake elements to allow compilation on ARM / non-x86
     struct L2_avx_generic:public Lx<uint64_t,float,32>{inline float computeDist(uint64_t *ptr){return std::numeric_limits<float>::max();}};
     struct L2_se3_generic:public Lx<uint64_t,float,32>{inline float computeDist(uint64_t *ptr){return std::numeric_limits<float>::max();}};
     struct L2_sse3_16w:public Lx<uint64_t,float,32>{inline float computeDist(uint64_t *ptr){return std::numeric_limits<float>::max();}};
     struct L2_avx_8w:public Lx<uint64_t,float,32>{inline float computeDist(uint64_t *ptr){return std::numeric_limits<float>::max();}};
 
-
-
-
 #else
+    // Actual x86 intrinsics implementations
     struct L2_avx_generic:public Lx<__m256,float,32>{
         virtual ~L2_avx_generic(){}
         inline float computeDist(__m256 *ptr){
