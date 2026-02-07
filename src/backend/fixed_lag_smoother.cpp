@@ -106,19 +106,29 @@ namespace caai_slam {
             if (!mp || mp->is_bad)
                 continue;
 
-            // Check if landmark is new and underconstrained before adding the factor
-            if (observed_landmarks.find(mp->id) == observed_landmarks.end()) {
-                // PATCH: Increased minimum observation count to 3 to ensure better geometric conditioning
-                if (mp->get_observation_count() < 3)
-                    continue; // Skip entirely — no factor, no value
-
-                new_values.insert(sym_landmark(mp->id), gtsam::Point3(mp->position));
-                new_timestamps[sym_landmark(mp->id)] = kf->_timestamp;
-                observed_landmarks.insert(mp->id);
+           // For landmarks already in the graph, verify they're still well-constrained
+            if (observed_landmarks.find(mp->id) != observed_landmarks.end()) {
+                // Only add the factor — no new value needed
+                const gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
+                new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(
+                    measurement, robust_visual_noise, sym_pose(kf->id), sym_landmark(mp->id), calibration, body_p_sensor));
+                continue;
             }
 
-            const gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
-            new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(measurement, robust_visual_noise, sym_pose(kf->id), sym_landmark(mp->id), calibration, body_p_sensor));
+            // For NEW landmarks: require >= 3 observations AND check that at least 2 
+            // observing keyframes are still in the smoother's active window
+            if (mp->get_observation_count() < 3)
+                continue;
+
+            // Count how many of this landmark's observers are still active in the smoother
+            uint32_t active_observers = 0;
+            for (const auto& [obs_kf, obs_idx] : mp->get_observations()) {
+                if (obs_kf && smoother->timestamps().count(sym_pose(obs_kf->id)))
+                    ++active_observers;
+            }
+            
+            if (active_observers < 2)
+                continue;
         }
 
         // Update cache

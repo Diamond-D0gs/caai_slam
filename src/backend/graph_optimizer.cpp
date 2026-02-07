@@ -83,8 +83,16 @@ namespace caai_slam {
 
             // Check if landmark is new and underconstrained before adding the factor
             if (observed_landmarks.find(mp->id) == observed_landmarks.end()) {
-                if (mp->get_observation_count() < 2)
-                    continue; // Skip entirely — no factor, no value
+                if (mp->get_observation_count() < 3)
+                    continue;
+
+                // Verify at least 2 observers are already in the ISAM2 graph
+                uint32_t active_observers = 0;
+                for (const auto& [obs_kf, obs_idx] : mp->get_observations())
+                    if (obs_kf && isam.valueExists(sym_pose(obs_kf->id)))
+                        active_observers++;
+                if (active_observers < 2)
+                    continue;
 
                 new_values.insert(sym_landmark(mp->id), gtsam::Point3(mp->position));
                 observed_landmarks.insert(mp->id);
