@@ -75,6 +75,9 @@ namespace caai_slam {
         _local_map->add_keyframe(kf);
         last_keyframe = kf;
 
+        // Initialize the loop closure optimizer with the first keyframe priors
+        _loop_closure_optimizer->add_first_keyframe(kf, init_state);
+
         // 2. Reset preintegration with estimated bias
         _imu_preintegration->reset(init_state.bias);
 
@@ -199,6 +202,9 @@ namespace caai_slam {
         const auto imu_factors = _imu_preintegration->get_and_reset(bias_to_reset);
 
         _fixed_lag_smoother->add_keyframe(new_kf, imu_factors, last_keyframe->id);
+
+        // Keep the global graph updated with the new keyframe and IMU factors
+        _loop_closure_optimizer->add_keyframe(new_kf, imu_factors, last_keyframe->id);      
 
         // Optimize
         const auto marginalized = _fixed_lag_smoother->optimize();

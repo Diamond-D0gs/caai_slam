@@ -73,15 +73,16 @@ namespace caai_slam {
         new_factors.add(gtsam::CombinedImuFactor(sym_pose(prev_kf_id), sym_vel(prev_kf_id), sym_pose(kf->id), sym_vel(kf->id), sym_bias(prev_kf_id), sym_bias(kf->id), imu_meas));
 
         // 2. Bias random walk
-        new_factors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(sym_bias(prev_kf_id), sym_bias(kf->id), gtsam::imuBias::ConstantBias(), bias_rw_noise));
+        // Use the actual dt from the measurement for accurate noise scaling
+        double dt = imu_meas.deltaTij();
+        if (dt < 1e-4) dt = 1e-4; // Avoid zero-division/invalid noise
+        
+        gtsam::Vector6 sigmas;
+        sigmas << _config.imu.accel_random_walk * sqrt(dt), _config.imu.accel_random_walk * sqrt(dt), _config.imu.accel_random_walk * sqrt(dt),
+                  _config.imu.gyro_random_walk * sqrt(dt), _config.imu.gyro_random_walk * sqrt(dt), _config.imu.gyro_random_walk * sqrt(dt);
+        auto current_bias_rw = gtsam::noiseModel::Diagonal::Sigmas(sigmas);
 
-        // PATCH: Add weak velocity prior if system is underconstrained (large time gap)
-        double dt_kf = kf->_timestamp - latest_state._timestamp;
-        if (dt_kf > 0.5) {
-             gtsam::Vector3 vel_prior = latest_state.velocity;
-             auto vel_prior_noise = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3::Constant(1.0)); // Weak
-             new_factors.add(gtsam::PriorFactor<gtsam::Vector3>(sym_vel(kf->id), vel_prior, vel_prior_noise));
-        }
+        new_factors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(sym_bias(prev_kf_id), sym_bias(kf->id), gtsam::imuBias::ConstantBias(), current_bias_rw));
 
         // 3. Predict initial estimate
         const gtsam::NavState prev_state(gtsam::Pose3(latest_state.pose.matrix()), latest_state.velocity);
@@ -106,36 +107,60 @@ namespace caai_slam {
             if (!mp || mp->is_bad)
                 continue;
 
-           // For landmarks already in the graph, verify they're still well-constrained
-            if (observed_landmarks.find(mp->id) != observed_landmarks.end()) {
-                // Only add the factor — no new value needed
-                const gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
+            const gtsam::Symbol l_sym = sym_landmark(mp->id);
+            const gtsam::Point2 uv(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
+
+            // CASE A: Landmark already exists in the smoother
+            if (observed_landmarks.count(mp->id)) {
+                // Add the new observation factor
                 new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(
-                    measurement, robust_visual_noise, sym_pose(kf->id), sym_landmark(mp->id), calibration, body_p_sensor));
+                    uv, robust_visual_noise, sym_pose(kf->id), l_sym, calibration, body_p_sensor));
+                
+                // IMPORTANT: Update the timestamp of the landmark to keep it in the smoothing window
+                new_timestamps[l_sym] = kf->_timestamp;
                 continue;
             }
 
-            // For NEW landmarks: require >= 3 observations AND check that at least 2 
-            // observing keyframes are still in the smoother's active window
-            if (mp->get_observation_count() < 3)
+            // CASE B: New Landmark Initialization
+            // We need at least 2 observations total (1 past + 1 current) to triangulate/constrain
+            if (mp->get_observation_count() < 2)
                 continue;
 
-            // Count how many of this landmark's observers are still active in the smoother
-            uint32_t active_observers = 0;
+            // Collect valid past observers that are currently active in the smoother
+            std::vector<std::pair<uint64_t, gtsam::Point2>> valid_past_observers;
             for (const auto& [obs_kf, obs_idx] : mp->get_observations()) {
-                if (obs_kf && smoother->timestamps().count(sym_pose(obs_kf->id)))
-                    ++active_observers;
+                if (obs_kf->id == kf->id) continue; // Skip current frame
+                
+                // Check if this observer is still in the smoother's active window
+                if (smoother->timestamps().find(sym_pose(obs_kf->id)) != smoother->timestamps().end()) {
+                    gtsam::Point2 past_uv(obs_kf->keypoints[obs_idx].pt.x, obs_kf->keypoints[obs_idx].pt.y);
+                    valid_past_observers.emplace_back(obs_kf->id, past_uv);
+                }
             }
-            
-            if (active_observers < 2)
-                continue;
+
+            // If we have at least 1 valid past anchored observer, we can initialize
+            if (valid_past_observers.size() >= 1) {
+                // 1. Initialize Landmark Value (Point3)
+                new_values.insert(l_sym, gtsam::Point3(mp->position));
+                new_timestamps[l_sym] = kf->_timestamp;
+                observed_landmarks.insert(mp->id);
+
+                // 2. Add factors for PAST observers (anchors)
+                for (const auto& [past_id, past_uv] : valid_past_observers) {
+                    new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(
+                        past_uv, robust_visual_noise, sym_pose(past_id), l_sym, calibration, body_p_sensor));
+                }
+
+                // 3. Add factor for CURRENT observer
+                new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(
+                    uv, robust_visual_noise, sym_pose(kf->id), l_sym, calibration, body_p_sensor));
+            }
         }
 
         // Update cache
         latest_state._timestamp = kf->_timestamp;
         latest_state.pose = se3(prop_state.pose().rotation().matrix(), prop_state.pose().translation());
         latest_state.velocity = prop_state.velocity();
-
         // Bias remains prev_bias until optimization updates it.
     }
 

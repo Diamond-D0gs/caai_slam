@@ -56,9 +56,8 @@ namespace caai_slam {
         const gtsam::CombinedImuFactor imu_factor(sym_pose(previous_kf_id), sym_vel(previous_kf_id), sym_pose(kf->id), sym_vel(kf->id), sym_bias(previous_kf_id), sym_bias(kf->id), preintegrated_imu);
         new_factors.add(imu_factor);
 
-        // 2. Add bias random walk factor (links previous bias to current bias).
+        // 2. Add bias random walk factor.
         // Assumes bias does not change much between frames.
-        // TODO: Load noise from config.
         const auto bias_rw_noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3).finished());
         new_factors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(sym_bias(previous_kf_id), sym_bias(kf->id), gtsam::imuBias::ConstantBias(), bias_rw_noise));
         
@@ -81,28 +80,71 @@ namespace caai_slam {
             if (!mp || mp->is_bad)
                 continue;
 
-            // Check if landmark is new and underconstrained before adding the factor
-            if (observed_landmarks.find(mp->id) == observed_landmarks.end()) {
-                if (mp->get_observation_count() < 3)
-                    continue;
+            bool is_landmark_valid = false;
 
-                // Verify at least 2 observers are already in the ISAM2 graph
-                uint32_t active_observers = 0;
-                for (const auto& [obs_kf, obs_idx] : mp->get_observations())
-                    if (obs_kf && isam.valueExists(sym_pose(obs_kf->id)))
-                        active_observers++;
-                if (active_observers < 2)
-                    continue;
+            // CASE A: Landmark is already in the optimization graph
+            if (observed_landmarks.count(mp->id)) {
+                is_landmark_valid = true;
+            }
+            // CASE B: Landmark is new, try to initialize it
+            else {
+                // We need enough observations to be confident
+                if (mp->get_observation_count() >= 3) {
+                    
+                    // Identify valid past observers (Must exist in ISAM or be pending in new_values)
+                    std::vector<std::pair<std::shared_ptr<keyframe>, size_t>> valid_past_observers;
+                    
+                    for (const auto& [obs_kf, obs_idx] : mp->get_observations()) {
+                        // Skip current keyframe (we handle it below)
+                        if (obs_kf->id == kf->id) continue;
 
-                new_values.insert(sym_landmark(mp->id), gtsam::Point3(mp->position));
-                observed_landmarks.insert(mp->id);
+                        // CRITICAL FIX: Check existence in ISAM *OR* in pending new_values
+                        // This supports both incremental smoothing and batch loop optimization
+                        if (obs_kf && (isam.valueExists(sym_pose(obs_kf->id)) || new_values.exists(sym_pose(obs_kf->id)))) {
+                            valid_past_observers.emplace_back(obs_kf, obs_idx);
+                        }
+                    }
+
+                    // We need at least 2 anchored past observers + current frame to ensure stability
+                    if (valid_past_observers.size() >= 2) {
+                        // 1. Initialize the landmark variable
+                        new_values.insert(sym_landmark(mp->id), gtsam::Point3(mp->position));
+                        observed_landmarks.insert(mp->id);
+                        is_landmark_valid = true;
+
+                        // 2. Add factors for the PAST observations
+                        for (const auto& [obs_kf, obs_idx] : valid_past_observers) {
+                            gtsam::Point2 old_meas(obs_kf->keypoints[obs_idx].pt.x, obs_kf->keypoints[obs_idx].pt.y);
+
+                            const gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2> old_factor(
+                                old_meas, 
+                                robust_visual_noise, 
+                                sym_pose(obs_kf->id), 
+                                sym_landmark(mp->id), 
+                                camera_calibration, 
+                                body_p_sensor
+                            );
+                            new_factors.add(old_factor);
+                        }
+                    }
+                }
             }
 
-            gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
+            // CRITICAL FIX: Only add the current factor if the landmark is valid/initialized.
+            // Previously this fell through and added factors for uninitialized landmarks.
+            if (is_landmark_valid) {
+                gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
 
-            // Add projection factor, Pose3 (camera pose in world) & Point3 (landmark in world).
-            const gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2> vis_factor(measurement, robust_visual_noise, sym_pose(kf->id), sym_landmark(mp->id), camera_calibration, body_p_sensor);
-            new_factors.add(vis_factor);
+                const gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2> vis_factor(
+                    measurement, 
+                    robust_visual_noise, 
+                    sym_pose(kf->id), 
+                    sym_landmark(mp->id), 
+                    camera_calibration, 
+                    body_p_sensor
+                );
+                new_factors.add(vis_factor);
+            }
         }
     }
 

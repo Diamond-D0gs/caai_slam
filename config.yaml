@@ -63,5 +63,5 @@ Backend:
   relinearize_threshold: 0.1    # ISAM2 relinearization threshold
 
 LoopClosure:
-  enable: 1                     # 1 = Enable, 0 = Disable
+  enable: 0                     # 1 = Enable, 0 = Disable
   similarity_threshold: 0.05    # FBoW similarity score threshold
