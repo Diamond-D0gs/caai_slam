@@ -30,6 +30,7 @@ namespace caai_slam {
         velocity_noise = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3::Constant(0.1));
         pose_noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.01, 0.01, 0.01, 0.05, 0.05, 0.05).finished());
         bias_noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.05, 0.05, 0.05, 0.01, 0.01, 0.01).finished());
+        robust_visual_noise = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), visual_noise);
 
         // Bias random walk (process noise)
         // config.imu stores continuous-time noise densities: sigma / sqrt(Hz)
@@ -66,7 +67,7 @@ namespace caai_slam {
         std::lock_guard<std::mutex> lock(mutex);
 
         // 1. IMU factor
-        new_factors.add(gtsam::CombinedImuFactor(sym_pose(prev_kf_id), sym_vel(prev_kf_id), sym_bias(prev_kf_id), sym_pose(kf->id), sym_vel(kf->id), sym_bias(kf->id), imu_meas));
+        new_factors.add(gtsam::CombinedImuFactor(sym_pose(prev_kf_id), sym_vel(prev_kf_id), sym_pose(kf->id), sym_vel(kf->id), sym_bias(prev_kf_id), sym_bias(kf->id), imu_meas));
 
         // 2. Bias random walk
         new_factors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(sym_bias(prev_kf_id), sym_bias(kf->id), gtsam::imuBias::ConstantBias(), bias_rw_noise));
@@ -85,7 +86,7 @@ namespace caai_slam {
         new_timestamps[sym_vel(kf->id)] = kf->_timestamp;
         new_timestamps[sym_bias(kf->id)] = kf->_timestamp;
 
-        const gtsam::Pose3 body_p_sensor(_config._extrinsics.t_cam_imu.matrix());
+        const gtsam::Pose3 body_p_sensor(_config._extrinsics.t_cam_imu.inverse().matrix());
 
         // 5. Visual factors (landmarks)
         for (size_t i = 0; i < kf->keypoints.size(); ++i) {
@@ -94,19 +95,18 @@ namespace caai_slam {
             if (!mp || mp->is_bad)
                 continue;
 
-            const gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
-
-            // Arguments: measurement, noise, poseKey, landmarkKey, calibration
-            new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(measurement, visual_noise, sym_pose(kf->id), sym_landmark(mp->id), calibration, body_p_sensor));
-
-            // If the landmark is new, add initial value and timestamp.
+            // Check if landmark is new and underconstrained before adding the factor
             if (observed_landmarks.find(mp->id) == observed_landmarks.end()) {
+                if (mp->get_observation_count() < 2)
+                    continue; // Skip entirely — no factor, no value
+
                 new_values.insert(sym_landmark(mp->id), gtsam::Point3(mp->position));
-                // While landmarks don't strictly need timestamps, 
-                // it helps the fixed-lag smoother if the timestamp of the first observation is provided for culling.
                 new_timestamps[sym_landmark(mp->id)] = kf->_timestamp;
                 observed_landmarks.insert(mp->id);
             }
+
+            const gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
+            new_factors.add(gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>(measurement, robust_visual_noise, sym_pose(kf->id), sym_landmark(mp->id), calibration, body_p_sensor));
         }
 
         // Update cache

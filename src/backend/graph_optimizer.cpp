@@ -30,6 +30,7 @@ namespace caai_slam {
     
         // Visual measurement noise (pixels)
         visual_noise = gtsam::noiseModel::Isotropic::Sigma(2, 1.0); // 1 pixel error
+        robust_visual_noise = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), visual_noise);
     }
 
     void graph_optimizer::add_first_keyframe(const std::shared_ptr<keyframe>& kf, const state& initial_state) {
@@ -52,7 +53,7 @@ namespace caai_slam {
         std::lock_guard<std::mutex> lock(mutex);
 
         // 1. Add IMU factor (links previous to current).
-        const gtsam::CombinedImuFactor imu_factor(sym_pose(previous_kf_id), sym_vel(previous_kf_id), sym_bias(previous_kf_id), sym_pose(kf->id), sym_vel(kf->id), sym_bias(kf->id), preintegrated_imu);
+        const gtsam::CombinedImuFactor imu_factor(sym_pose(previous_kf_id), sym_vel(previous_kf_id), sym_pose(kf->id), sym_vel(kf->id), sym_bias(previous_kf_id), sym_bias(kf->id), preintegrated_imu);
         new_factors.add(imu_factor);
 
         // 2. Add bias random walk factor (links previous bias to current bias).
@@ -80,17 +81,20 @@ namespace caai_slam {
             if (!mp || mp->is_bad)
                 continue;
 
-            gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
-
-            // Add projection factor, Pose3 (camera pose in world) & Point3 (landmark in world).
-            const gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2> vis_factor(measurement, visual_noise, sym_pose(kf->id), sym_landmark(mp->id), camera_calibration, body_p_sensor);
-            new_factors.add(vis_factor);
-
-            // Check if the landmark is new to the graph.
+            // Check if landmark is new and underconstrained before adding the factor
             if (observed_landmarks.find(mp->id) == observed_landmarks.end()) {
+                if (mp->get_observation_count() < 2)
+                    continue; // Skip entirely — no factor, no value
+
                 new_values.insert(sym_landmark(mp->id), gtsam::Point3(mp->position));
                 observed_landmarks.insert(mp->id);
             }
+
+            gtsam::Point2 measurement(kf->keypoints[i].pt.x, kf->keypoints[i].pt.y);
+
+            // Add projection factor, Pose3 (camera pose in world) & Point3 (landmark in world).
+            const gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2> vis_factor(measurement, robust_visual_noise, sym_pose(kf->id), sym_landmark(mp->id), camera_calibration, body_p_sensor);
+            new_factors.add(vis_factor);
         }
     }
 

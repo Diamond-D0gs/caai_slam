@@ -158,6 +158,11 @@ namespace caai_slam {
                         if (compute_parallax(pose_cam_last, pose_cam_curr, pt_world) < _config.frontend.parallax_min)
                             continue;
 
+                        // Depth validation
+                        const vec3 p_cam = pose_cam_curr.inverse() * pt_world;
+                        if (p_cam.z() < 0.1 || p_cam.z() > 50.0)
+                            continue;
+
                         auto mp = std::make_shared<map_point>(pt_world, new_kf->descriptors.row(m.queryIdx));
                         {
                             std::lock_guard<std::mutex> last_kf_lock(last_keyframe->mutex);

@@ -41,6 +41,7 @@ namespace caai_slam {
         gtsam::noiseModel::Diagonal::shared_ptr velocity_noise;
         gtsam::noiseModel::Diagonal::shared_ptr bias_noise;
         gtsam::noiseModel::Isotropic::shared_ptr visual_noise;
+        gtsam::noiseModel::Robust::shared_ptr robust_visual_noise;
 
         // Bookkeeping
         bool pending_loop_closure = false;

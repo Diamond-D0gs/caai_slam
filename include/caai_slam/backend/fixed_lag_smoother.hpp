@@ -37,6 +37,7 @@ namespace caai_slam {
         boost::shared_ptr<gtsam::Cal3_S2> calibration; // Legacy boost::shared_ptr required for GTSAM factors.
 
         // Noise models
+        gtsam::noiseModel::Robust::shared_ptr robust_visual_noise;
         gtsam::noiseModel::Diagonal::shared_ptr velocity_noise;
         gtsam::noiseModel::Diagonal::shared_ptr bias_rw_noise;
         gtsam::noiseModel::Isotropic::shared_ptr visual_noise;
