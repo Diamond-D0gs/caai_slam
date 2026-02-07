@@ -167,7 +167,7 @@ endif()
 # =============================================================================
 
 # --- Eigen3 (Required by GTSAM, TEASER++) ---
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+find_package(Eigen3 REQUIRED NO_MODULE)
 message(STATUS "Eigen3 found: ${EIGEN3_INCLUDE_DIR}")
 
 # Eigen alignment for NEON/SSE (critical for ARM64)
