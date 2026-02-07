@@ -5,6 +5,8 @@
 #include <gtsam/slam/PriorFactor.h>
 #include <gtsam/inference/Symbol.h>
 
+#include <iostream> // Added for improved logging
+
 namespace caai_slam {
     // Helper symbol generators
     inline gtsam::Symbol sym_pose(uint64_t id) { return gtsam::Symbol('x', id); }
@@ -26,7 +28,8 @@ namespace caai_slam {
         calibration = boost::make_shared<gtsam::Cal3_S2>(cfg.camera.fx, cfg.camera.fy, 0.0, cfg.camera.cx, cfg.camera.cy);
 
         // 4. Initialize noise models
-        visual_noise = gtsam::noiseModel::Isotropic::Sigma(2, 1.0); // ~1 pixel error
+        // PATCH: Tightened visual noise from 1.0 to 0.5 to better balance with IMU
+        visual_noise = gtsam::noiseModel::Isotropic::Sigma(2, 0.5); 
         velocity_noise = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3::Constant(0.1));
         pose_noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.01, 0.01, 0.01, 0.05, 0.05, 0.05).finished());
         bias_noise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.05, 0.05, 0.05, 0.01, 0.01, 0.01).finished());
@@ -72,6 +75,14 @@ namespace caai_slam {
         // 2. Bias random walk
         new_factors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(sym_bias(prev_kf_id), sym_bias(kf->id), gtsam::imuBias::ConstantBias(), bias_rw_noise));
 
+        // PATCH: Add weak velocity prior if system is underconstrained (large time gap)
+        double dt_kf = kf->_timestamp - latest_state._timestamp;
+        if (dt_kf > 0.5) {
+             gtsam::Vector3 vel_prior = latest_state.velocity;
+             auto vel_prior_noise = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3::Constant(1.0)); // Weak
+             new_factors.add(gtsam::PriorFactor<gtsam::Vector3>(sym_vel(kf->id), vel_prior, vel_prior_noise));
+        }
+
         // 3. Predict initial estimate
         const gtsam::NavState prev_state(gtsam::Pose3(latest_state.pose.matrix()), latest_state.velocity);
         const gtsam::imuBias::ConstantBias prev_bias(latest_state.bias.accelerometer, latest_state.bias.gyroscope);
@@ -97,7 +108,8 @@ namespace caai_slam {
 
             // Check if landmark is new and underconstrained before adding the factor
             if (observed_landmarks.find(mp->id) == observed_landmarks.end()) {
-                if (mp->get_observation_count() < 2)
+                // PATCH: Increased minimum observation count to 3 to ensure better geometric conditioning
+                if (mp->get_observation_count() < 3)
                     continue; // Skip entirely — no factor, no value
 
                 new_values.insert(sym_landmark(mp->id), gtsam::Point3(mp->position));
@@ -142,8 +154,11 @@ namespace caai_slam {
             smoother->update(new_factors, new_values, new_timestamps);
         }
         catch (const gtsam::IndeterminantLinearSystemException& e) {
-            // Often happens if system is under-constrained (e.g., waiting for IMU bias convergence), no big deal.
+            // PATCH: Improved logging for debugging singularities
             std::cerr << "Smoother Indeterminant: " << e.what() << std::endl;
+            std::cerr << "  Observed landmarks: " << observed_landmarks.size() << std::endl;
+            std::cerr << "  New factors: " << new_factors.size() << std::endl;
+            // Often happens if system is under-constrained (e.g., waiting for IMU bias convergence), no big deal.
         }
 
         // 3. Clear buffers
