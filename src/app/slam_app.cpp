@@ -70,6 +70,8 @@ namespace caai_slam {
 
         // 6. Cache visualization state
         {
+            // 1. Store the image for the UI to draw
+            vis_state.current_image = image.clone();
             vis_state.current_pose = _slam_system.get_current_pose();
             vis_state.status = _slam_system.get_status();
 
